@@ -83,7 +83,12 @@ def extract_keyframes(video: Path, out_dir: Path, n: int = 32, long_side: int = 
     out_dir.mkdir(parents=True, exist_ok=True)
     paths, ts, Ks = [], [], {}
     W0, H0 = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    K0 = arkitscenes_K(video, W0, H0)
+    # the ARKitScenes sensor is landscape. Some .mov files carry a rotation flag that OpenCV applies
+    # itself (41069042 decodes as 1440x1920), others do not (42444946: 1920x1440). If the decoder already
+    # rotated, rotating again would turn the frame (and its K) 90 deg too far
+    auto_rotated = rot in (cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_90_COUNTERCLOCKWISE) and H0 > W0
+    Ws, Hs = (H0, W0) if auto_rotated else (W0, H0)          # sensor-orientation size
+    K0 = arkitscenes_K(video, Ws, Hs)
     for b in range(n):
         best, best_s, best_i = None, -1.0, -1
         for i in range(bins[b], bins[b + 1], step):
@@ -97,8 +102,8 @@ def extract_keyframes(video: Path, out_dir: Path, n: int = 32, long_side: int = 
                 best, best_s, best_i = f, s, i
         if best is None:
             continue
-        K = None if K0 is None else _rotate_K(K0, rot, W0, H0)
-        if rot is not None:
+        K = None if K0 is None else _rotate_K(K0, rot, Ws, Hs)
+        if rot is not None and not auto_rotated:
             best = cv2.rotate(best, rot)
         h, w = best.shape[:2]
         sc = long_side / max(h, w)
