@@ -91,3 +91,27 @@ Method: CLAMS-style plane consistency across camera distance (`core/depth_calib.
 - The laser ceiling is a single flat level at 3.06 m.
 - Our drift-off cloud has the true layer at 3.06–3.08 m and a phantom at 3.14–3.16 m holding 15% of the points. The phantom comes from frames with an ARKit height error.
 - The level picker took the highest layer. It now takes the best-supported layer within 15 cm of the extreme.
+
+### Drift correction rebuilt and re-scored
+
+**Harm on real poses.** Per-frame camera position vs laser; ARKit as-is is the baseline (`bench/drift_eval.py`):
+
+| Variant | 42444946 | 42444949 | 42444950 |
+|---|---|---|---|
+| ARKit as-is | 2.4 cm | 1.9 cm | 2.2 cm |
+| Old default (per-fragment yaw, 20 cm match) | 8.2 cm | 4.9 cm | — |
+| No yaw, 8 cm, prior 3 cm (**new default**) | — | 1.9 cm | 1.9 cm |
+| Linear yaw, 8 cm, merge 6 cm | 3.6 cm | 2.4 cm | — |
+
+**Known-answer test.** 15/10/3 cm + 1.5° of slow drift injected into the real poses; max camera error, injected run vs zero-drift run (`bench/drift_inject.py`):
+
+| Variant | Injected 49 / 50 / 46 | Added at zero drift 49 / 50 / 46 |
+|---|---|---|
+| None | 16.6 / 17.2 / 9.8 cm | 0 |
+| New default | 15.5 / 16.8 / 9.9 cm | 1.5 / 1.8 / 3.8 cm |
+| Merge, no prior | 10.6 / 7.3 / 11.8 cm | 5.4 / 5.1 / 8.6 cm |
+
+**Conclusion.**
+- On single-room captures, ARKit's own poses (about 2 cm, with its own loop closure) are as precise as the plane observations of a 4 s fragment. A plane-based corrector that removes large drift therefore also adds noise when there is none.
+- The default is the do-no-harm setting. It does not yet remove large drift.
+- That is the open item for gate G.4 and a fix-loop candidate. The likely route is larger, overlap-based fragments or wall-level association across the whole capture, judged on a multi-room capture where drift is real.

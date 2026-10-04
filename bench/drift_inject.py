@@ -54,11 +54,13 @@ def main():
           f"max {cam_err(cap.poses, ref)[2]:5.1f}")
     variants = {
         "per-fragment yaw, 20cm (old default)": dict(),
+        "no yaw, 8cm, merge 6cm, prior 3cm": dict(per_fragment_yaw=False, match_dist=0.08, merge_dist=0.06,
+                                                  reassoc_iters=4, prior_sigma=0.03),
         "no yaw, 8cm, prior 3cm": dict(per_fragment_yaw=False, match_dist=0.08, prior_sigma=0.03),
         "no yaw, 8cm, prior 1cm": dict(per_fragment_yaw=False, match_dist=0.08, prior_sigma=0.01),
         "yaw, 8cm, prior 3cm": dict(per_fragment_yaw=True, match_dist=0.08, prior_sigma=0.03),
         "no yaw, 8cm, merge 6cm": dict(per_fragment_yaw=False, match_dist=0.08, merge_dist=0.06, reassoc_iters=4),
-        "linear yaw, 8cm, merge 6cm": dict(per_fragment_yaw="linear", match_dist=0.08, merge_dist=0.06, reassoc_iters=4),
+        "gated linear yaw, 8cm, merge 6cm": dict(per_fragment_yaw="linear", match_dist=0.08, merge_dist=0.06, reassoc_iters=4),
         "linear yaw, 8cm, merge 6cm, prior 3cm": dict(per_fragment_yaw="linear", match_dist=0.08, merge_dist=0.06,
                                                      reassoc_iters=4, prior_sigma=0.03),
     }

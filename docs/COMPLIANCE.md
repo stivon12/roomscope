@@ -7,7 +7,7 @@ Status: ✅ done & verified · 🟡 partial · ⬜ not started · ❌ known fail
 | 1.1 | Capture route: stock protocol (§1 Route 2) | `docs/PROTOCOL.md` | one-page protocol | 🟡 |
 | 1.2 | Photo tier: 2–8 stills/room, per-room folders → stitched plan | `src/roomscope/frontends/photo.py` | `out/<cap>/result.json` | ⬜ |
 | 1.3 | Video tier: handheld walkthrough | `src/roomscope/frontends/video.py` | `out/<cap>/result.json` | ⬜ |
-| 1.4 | LiDAR tier: depth+poses+intrinsics | `src/roomscope/frontends/lidar.py` (Stray + ARKitScenes loaders) | `out/<cap>/result.json` | 🟡 runs on real ARKitScenes 41069042; laser scoring pending GT scene |
+| 1.4 | LiDAR tier: depth+poses+intrinsics | `src/roomscope/frontends/lidar.py` (Stray + ARKitScenes loaders) | `out/<cap>/result.json` | 🟡 runs on 4 real ARKitScenes captures, 3 scored vs Faro laser; Stray loader untested on a real export |
 | 1.5 | Device matrix (tier × hardware × honest accuracy) | `docs/DEVICE_MATRIX.md` | table | ⬜ |
 | 2.1 | Per-room walls, ceiling height, floor area, openings | `src/roomscope/core/layout.py` | result.json `rooms[]` | 🟡 LiDAR tier; unverified vs laser |
 | 2.2 | Stitched multi-room plan, correct adjacency | `src/roomscope/core/stitch.py` | result.json `footprint`, `adjacency` | ⬜ |
@@ -24,9 +24,9 @@ Status: ✅ done & verified · 🟡 partial · ⬜ not started · ❌ known fail
 | B.4 | ≥1 room captured twice per tier | `benchmark/raw/MANIFEST.md` | raw data | ⬜ |
 | B.5 | Laser/tape ground truth on everything | `benchmark/gt/*.yaml` | GT files | ⬜ |
 | G.1 | Openings ≤2 cm on ≥85%, misses+phantoms scored | `bench/gates.py` | `bench/results/gates.md` | ⬜ |
-| G.2 | Ceiling ≤1.5 cm; multi-capture spread ≤1 cm; bias vs variance stated | `src/roomscope/eval/laser.py`, `tests/test_lidar_real.py` | test vs Faro laser | ❌ ceiling −3.0 cm vs Faro on 42444946 (gate 1.5 cm); see fix-loop candidates |
+| G.2 | Ceiling ≤1.5 cm; multi-capture spread ≤1 cm; bias vs variance stated | `config/depth_scale.yaml`, `src/roomscope/eval/depth_bias.py`, `docs/DIAGNOSTICS.md` | test vs Faro laser | 🟡 root cause: LiDAR reads 1.1–1.3% short (per pixel vs laser). After the held-out depth correction, drift off: +0.1 / −1.0 / −0.3 cm on 42444949/50/46 (was −2.8 / −4.5 / −3.6). Spread across captures 1.1 cm, gate 1 cm ❌ |
 | G.3 | Repeatability 1 cm or 0.5%/wall | `bench/repeatability.py` | `bench/results/repeatability.md` | ⬜ |
-| G.4 | Drift handling + on/off ablation | `src/roomscope/core/drift.py`, `--drift/--no-drift`, `tests/test_lidar_real.py` | result.json `meta.drift_correction` | 🟡 plane residual 6.4→3.0 cm (41069042), 6.8→3.9 cm (42444946); vs laser: ceiling better on, walls mixed |
+| G.4 | Drift handling + on/off ablation | `src/roomscope/core/drift.py`, `bench/drift_eval.py`, `bench/drift_inject.py` | result.json `meta.drift_correction` | 🟡 old corrector degraded ARKit poses (camera error vs laser 2.4→8.2 cm). Rebuilt with plane merging and a linear yaw trend. Known-answer test with injected drift: max error 16.6→8.7 cm and 17.2→8.0 cm, but 9.8→11.2 cm on 42444946 |
 | G.5 | Photo-tier whole-property stitch, ±8% footprint, calibrated | `bench/gates.py` | `bench/results/gates.md` | ⬜ |
 | G.6 | Photo ±8% / video ±3% walls; calibration at every tier | `bench/calibration.py` | `bench/results/calibration.md` | ⬜ |
 | 3.1 | Head-to-head vs Polycam on 2 rooms, ≥70% beat/tie | `bench/h2h.py` | `bench/results/h2h.md` + `benchmark/raw/polycam/` | ⬜ |

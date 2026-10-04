@@ -16,6 +16,13 @@ a few dominant (Manhattan) directions. So:
    with the associations from step 3; soft-L1 loss so one bad association cannot drag the solution.
 5. Per-frame corrections are linearly interpolated between fragment centres (no seams).
 
+Defaults (2026-10-04, docs/DIAGNOSTICS.md): no per-fragment yaw, 8 cm association, 3 cm odometry prior.
+Scored per frame against the Faro laser, the original settings (per-fragment yaw, 20 cm association, no
+prior) made ARKit poses worse: median camera error 2.4 -> 8.2 cm on 42444946. The defaults do no harm
+(42444949: 1.9 -> 1.9 cm, 42444950: 2.2 -> 1.9 cm). KNOWN LIMIT: they remove little of a large injected
+drift (bench/drift_inject.py: max 16.6 -> 15.5 cm). Plane merging removes about half of it but adds
+2-4 cm to accurate poses, because a 4 s fragment's plane observations are no more precise than ARKit.
+
 Ablation: `--no-drift` returns identity corrections; the report compares plane-consistency residuals and
 the stitched footprint with and without.
 """
@@ -81,11 +88,11 @@ class DriftResult:
     residual_after: float
     n_fragments: int
     n_map_planes: int
-    method: str = "plane-anchored fragment alignment + robust joint LSQ (Manhattan yaw, wall/floor planes)"
+    method: str = "plane-anchored fragment alignment + robust joint LSQ (wall/floor planes, 3 cm odometry prior)"
 
 
-def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragment_yaw: bool | str = True,
-                  match_dist: float = MATCH_DIST, prior_sigma: float | None = None,
+def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragment_yaw: bool | str = False,
+                  match_dist: float = 0.08, prior_sigma: float | None = 0.03,
                   merge_dist: float = 0.0, reassoc_iters: int = 0) -> DriftResult:
     """per_fragment_yaw: True = each fragment's own Manhattan yaw (noisy, ~1 deg); "linear" = one robust
     linear yaw trend over the capture fitted to those per-fragment estimates; False = no yaw correction.
@@ -132,8 +139,16 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragm
                 ab = np.linalg.lstsq(A, th * np.sqrt(w), rcond=None)[0]
                 r = np.abs(th - (ab[0] + ab[1] * kk))
                 w = np.where(r < np.deg2rad(0.5), 1.0, np.deg2rad(0.5) / np.maximum(r, 1e-9))
-            theta = ab[0] + ab[1] * np.arange(K)
-            theta -= theta[0]                                 # gauge: fragment 0 keeps its yaw
+            # apply the trend only if it is clearly real: total change > max(3 SE, 0.5 deg). On real
+            # ARKit poses an ungated trend added ~1 deg of yaw error (Manhattan yaw from a fragment's
+            # visible walls is biased by which walls are in view, not just by drift)
+            res = th - (ab[0] + ab[1] * kk)
+            se_b = np.sqrt(np.sum(w * res ** 2) / max(len(kk) - 2, 1) / np.sum(w * (kk - kk.mean()) ** 2))
+            span = K - 1
+            if abs(ab[1]) * span > max(3 * se_b * span, np.deg2rad(0.5)):
+                theta = ab[1] * np.arange(K)                  # gauge: fragment 0 keeps its yaw
+            else:
+                theta = np.zeros(K)
         else:
             theta = np.zeros(K)
 
@@ -279,6 +294,21 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragm
         sol = least_squares(resid, np.concatenate([tt[1:].ravel(), g]), loss="soft_l1", f_scale=0.02)
         tt, g = unpack(sol.x)
 
+    def rms_free(tvec):
+        """Weighted RMS plane disagreement with plane offsets re-fitted for these translations."""
+        if not assoc:
+            return float("nan")
+        v = np.array([obs[oi].offset + tvec[obs[oi].frag, obs[oi].axis] for oi, _ in assoc])
+        w = np.array([obs[oi].w for oi, _ in assoc])
+        mi_ = np.array([mi for _, mi in assoc])
+        e = np.zeros(len(v))
+        for m in np.unique(mi_):
+            sel = mi_ == m
+            e[sel] = v[sel] - np.average(v[sel], weights=w[sel])
+        return float(np.sqrt(np.average(e ** 2, weights=w)))
+
+    disagree_raw, disagree_fit = rms_free(np.zeros((K, 3))), rms_free(tt)
+
     def rms(tvec, gvec):
         if not assoc:
             return float("nan")
@@ -323,7 +353,9 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragm
         M = rz(th_f[i])
         M[:3, 3] = tr_f[i]
         corr[i] = R0i @ M @ R0
-    return DriftResult(corr, before, after, int(K), M_)
+    res = DriftResult(corr, before, after, int(K), M_)
+    res.disagree_raw, res.disagree_fit = disagree_raw, disagree_fit
+    return res
 
 
 def identity(cap) -> np.ndarray:
