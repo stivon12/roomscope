@@ -50,7 +50,13 @@ class PlaneObs:
     w: float           # weight ~ sqrt(n)/std
 
 
-def _frag_planes(P, N, frag, min_pts=150):
+def _frag_planes(P, N, frag, min_pts=150, floor_z=None):
+    """Wall-plane observations in one fragment. With floor_z given, only STRUCTURAL planes are kept
+    (research note 2026-10-04, after Choi/Zhou/Koltun CVPR 2015 and Manhattan-SLAM practice: gate
+    landmarks before solving, so a wardrobe face can never be associated with a wall):
+    - tall: the plane's points span >= 1.0 m vertically and reach >= 1.6 m above the floor;
+    - wide: >= 0.8 m along the wall;
+    - outermost: no other plane of the same face lies > 5 cm further out with >= 30% overlap along it."""
     cls = classify(N)
     obs = []
     for face, (axis, _sign) in FACES.items():
@@ -76,8 +82,22 @@ def _frag_planes(P, N, frag, min_pts=150):
                 continue
             a = along[sel]
             std = max(float(np.std(x[sel] - off)), 0.005)
-            obs.append(PlaneObs(frag, face, axis, off, float(np.percentile(a, 2)), float(np.percentile(a, 98)),
-                                np.sqrt(sel.sum()) / std))
+            lo, hi = float(np.percentile(a, 2)), float(np.percentile(a, 98))
+            if floor_z is not None:
+                z = P[m, 2][sel]
+                z_lo, z_hi = np.percentile(z, [2, 98])
+                if z_hi - z_lo < 1.0 or z_hi - floor_z < 1.6 or hi - lo < 0.8:
+                    continue
+            obs.append(PlaneObs(frag, face, axis, off, lo, hi, np.sqrt(sel.sum()) / std))
+    if floor_z is not None:
+        keep = []
+        for o in obs:
+            out = FACES[o.face][1]          # normals point into the room: outward is -sign along the axis
+            hidden = any(q is not o and q.face == o.face and (o.offset - q.offset) * out > 0.05 and
+                         (min(o.hi, q.hi) - max(o.lo, q.lo)) >= 0.3 * (o.hi - o.lo) for q in obs)
+            if not hidden:
+                keep.append(o)
+        obs = keep
     return obs
 
 
@@ -93,12 +113,15 @@ class DriftResult:
 
 def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragment_yaw: bool | str = False,
                   match_dist: float = 0.08, prior_sigma: float | None = 0.03,
-                  merge_dist: float = 0.0, reassoc_iters: int = 0) -> DriftResult:
+                  merge_dist: float = 0.0, reassoc_iters: int = 0, structural: bool = False,
+                  loss: str = "soft_l1") -> DriftResult:
     """per_fragment_yaw: True = each fragment's own Manhattan yaw (noisy, ~1 deg); "linear" = one robust
     linear yaw trend over the capture fitted to those per-fragment estimates; False = no yaw correction.
     merge_dist/reassoc_iters: after the joint solve, merge map planes of the same face whose solved
     offsets agree within merge_dist (with overlapping extents) and re-solve, so revisiting a wall
-    actually constrains the drift instead of spawning a duplicate plane that absorbs it."""
+    actually constrains the drift instead of spawning a duplicate plane that absorbs it.
+    structural: keep only tall, wide, outermost wall planes as landmarks (see _frag_planes).
+    loss: scipy robust loss for the joint solve ("soft_l1", or the stronger "cauchy")."""
     F = len(cap.poses)
     ts = cap.timestamps - cap.timestamps[0]
     frag_id = np.floor(ts / frag_seconds).astype(int)
@@ -164,16 +187,25 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragm
     obs: list[PlaneObs] = []
     floor_z = np.full(K, np.nan)
     floor_w = np.zeros(K)
+    frag_floor = {}
     for k, (P, N) in frag_pts.items():
         M = frag_M(k, np.zeros(3))
         P2 = P @ M[:3, :3].T + M[:3, 3]
         N2 = N @ M[:3, :3].T
-        obs += _frag_planes(P2, N2, k)
         fl = N2[:, 2] > 0.9
         if fl.sum() > 300:
             # lowest substantial level, not the median: in a bedroom fragment the bed top often wins
             hp = fit_hplane(P2[fl], z0=pick_level(P2[fl], "low", min_extent_m2=0.5), iters=2)
             floor_z[k], floor_w[k] = hp.c, np.sqrt(hp.n) / max(hp.std, 0.005)
+        frag_floor[k] = floor_z[k]
+    if structural:
+        # the gate uses the capture's median floor (ARKit z drifts by cm only)
+        fz = float(np.nanmedian(floor_z)) if (~np.isnan(floor_z)).any() else float(np.min(cap.poses[:, 2, 3]) - 1.4)
+        frag_floor = {k: fz for k in frag_floor}    # one floor for the gate: a fragment's own may be a bed top
+    for k, (P, N) in frag_pts.items():
+        M = frag_M(k, np.zeros(3))
+        obs += _frag_planes(P @ M[:3, :3].T + M[:3, 3], N @ M[:3, :3].T, k,
+                            floor_z=frag_floor[k] if structural else None)
 
     # pass 3: sequential anchoring to a growing map (association + initial translations)
     t = np.zeros((K, 3))
@@ -257,7 +289,7 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragm
         return np.asarray(r)
 
     x0 = np.concatenate([t[1:].ravel(), np.array([g["g"] for g in gmap])])
-    sol = least_squares(resid, x0, loss="soft_l1", f_scale=0.02) if len(x0) else None
+    sol = least_squares(resid, x0, loss=loss, f_scale=0.02) if len(x0) else None
     tt, g = unpack(sol.x) if sol is not None else (t, np.array([]))
 
     for _ in range(reassoc_iters if merge_dist > 0 else 0):
@@ -291,7 +323,7 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragm
         M_ = len(gmap)
         if not merged:
             break
-        sol = least_squares(resid, np.concatenate([tt[1:].ravel(), g]), loss="soft_l1", f_scale=0.02)
+        sol = least_squares(resid, np.concatenate([tt[1:].ravel(), g]), loss=loss, f_scale=0.02)
         tt, g = unpack(sol.x)
 
     def rms_free(tvec):
@@ -319,7 +351,7 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragm
     # "before": raw poses (no yaw, no translation) - recompute planes in the R0 frame with the same associations
     obs_raw = {}
     for k, (P, N) in frag_pts.items():
-        for o in _frag_planes(P, N, k):
+        for o in _frag_planes(P, N, k, floor_z=frag_floor[k] if structural else None):
             obs_raw.setdefault((k, o.face), []).append(o)
     e_b, w_b = [], []
     members: dict[int, list[float]] = {}

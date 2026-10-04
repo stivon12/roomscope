@@ -44,6 +44,7 @@ def main():
     ap.add_argument("scene", type=Path)
     ap.add_argument("--trans", type=float, nargs=3, default=[0.15, 0.10, 0.03])
     ap.add_argument("--yaw", type=float, default=1.5)
+    ap.add_argument("--only", default="", help="comma-separated variant names")
     a = ap.parse_args()
     ds = resolve_depth_scale()
     cap = load_any(a.scene, depth_affine=(ds.scale, 0.0))
@@ -63,7 +64,14 @@ def main():
         "gated linear yaw, 8cm, merge 6cm": dict(per_fragment_yaw="linear", match_dist=0.08, merge_dist=0.06, reassoc_iters=4),
         "linear yaw, 8cm, merge 6cm, prior 3cm": dict(per_fragment_yaw="linear", match_dist=0.08, merge_dist=0.06,
                                                      reassoc_iters=4, prior_sigma=0.03),
+        "default": dict(),
+        "structural": dict(structural=True),
+        "structural + cauchy": dict(structural=True, loss="cauchy"),
+        "structural + merge 6cm": dict(structural=True, merge_dist=0.06, reassoc_iters=4),
+        "structural + cauchy + merge 6cm": dict(structural=True, loss="cauchy", merge_dist=0.06, reassoc_iters=4),
     }
+    if a.only:
+        variants = {k: v for k, v in variants.items() if k in a.only.split(",")}
     for name, kw in variants.items():
         C = D.correct_drift(cap, **kw).corrections
         corrected = np.einsum("fij,fjk->fik", C, cap.poses)
