@@ -1,0 +1,26 @@
+# Ground truth for one room. Laser measurer, mm precision. One file per room: benchmark/gt/<room_id>.yaml
+# Walls are listed counter-clockwise looking down, starting from the wall with the main door.
+room_id: kitchen
+name: Kitchen
+measured_by: ""            # initials
+instrument: "Bosch GLM 50C" # make/model of laser
+date: 2026-10-04
+ceiling_height_m:          # measure at 3 spots (centre + 2 corners) — we report the mean, spread tells flatness
+  - 0.000
+  - 0.000
+  - 0.000
+walls:                     # finished-surface length, corner to corner, measured at ~1 m height
+  - {id: W1, length_m: 0.000, note: "wall with main door"}
+  - {id: W2, length_m: 0.000}
+  - {id: W3, length_m: 0.000}
+  - {id: W4, length_m: 0.000}
+diagonals_m: [0.000]       # optional, corner-to-corner; pins down non-rectangularity
+openings:                  # EVERY door, window, open passage. Width = clear opening inside the frame (jamb to jamb).
+  - {id: D1, type: door,    wall: W1, width_m: 0.000, height_m: 0.000, offset_m: 0.000, connects_to: hall}
+  - {id: N1, type: window,  wall: W3, width_m: 0.000, height_m: 0.000, sill_m: 0.000, offset_m: 0.000}
+# offset_m = distance from the wall's start corner (CCW order) to the near edge of the opening
+floor_area_m2:             # leave blank for rectangular rooms (computed); fill for irregular rooms
+damage:                    # staged damage room only
+  - {id: X1, class: water_stain, surface: W2, u_min_m: 0.0, u_max_m: 0.0, v_min_m: 0.0, v_max_m: 0.0, note: ""}
+# u = horizontal distance from wall start corner, v = height from floor, both metres
+hazards: []                # e.g. [mirror on W4, glass door D2, glossy floor]
