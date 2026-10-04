@@ -47,14 +47,40 @@ class LidarCapture:
         return self.pts_cam[i] @ R.T + t, self.nrm_cam[i] @ R.T, t
 
 
-def _find_root(path: Path) -> Path:
+def _find_root(path: Path) -> tuple[Path, list[str]]:
+    """Stray recording folder. Stray writes one folder per recording; with several, the longest is used
+    and the others are named in a warning (the protocol asks for one recording through all rooms)."""
     path = Path(path)
     if (path / "odometry.csv").exists():
-        return path
+        return path, []
     hits = sorted(path.glob("*/odometry.csv"))
     if not hits:
         raise FileNotFoundError(f"no odometry.csv under {path}")
-    return hits[0].parent
+    if len(hits) == 1:
+        return hits[0].parent, []
+    sizes = {h.parent: sum(1 for _ in h.open()) for h in hits}
+    best = max(sizes, key=sizes.get)
+    others = ", ".join(sorted(d.name for d in sizes if d != best))
+    return best, [f"{len(hits)} Stray recordings found; used the longest ({best.name}); ignored: {others}"]
+
+
+def _read_odometry(csv_path: Path) -> dict[str, np.ndarray]:
+    """Stray odometry.csv. Header has spaces after the commas ("timestamp, frame, x, y, z, qx, ...");
+    v1.3+ adds per-frame fx, fy, cx, cy (+ distortion centre); older exports have 9 columns."""
+    lines = csv_path.read_text().strip().splitlines()
+    names = [h.strip() for h in lines[0].split(",")]
+    data = np.array([[float(v) for v in ln.split(",")] for ln in lines[1:] if ln.strip()], ndmin=2)
+    return {n: data[:, i] for i, n in enumerate(names)}
+
+
+def _rgb_size(root: Path) -> tuple[int, int] | None:
+    vid = root / "rgb.mp4"
+    if not vid.exists():
+        return None
+    cap = cv2.VideoCapture(str(vid))
+    wh = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap.release()
+    return wh if wh[0] > 0 else None
 
 
 def _read_img(stem: Path) -> np.ndarray:
@@ -106,38 +132,69 @@ def _frame_points(depth: np.ndarray, conf: np.ndarray, Kd: np.ndarray, pixel_str
             n[::pixel_stride, ::pixel_stride][keep].astype(np.float32))
 
 
-def load_stray(path: Path, pixel_stride: int = 3, frame_stride: int = 1, min_conf: int = 2,
-               max_depth: float = 5.0, depth_affine: tuple[float, float] | None = None) -> LidarCapture:
-    root = _find_root(path)
-    odo = np.genfromtxt(root / "odometry.csv", delimiter=",", names=True)
-    K = np.loadtxt(root / "camera_matrix.csv", delimiter=",")
-    d0 = _read_img(root / "depth" / "000000")
-    W = d0.shape[1]
-    Kd = K.copy()
-    Kd[:2] *= W / (2 * K[0, 2])   # RGB width ~ 2*cx; depth is the same camera scaled down
+def load_stray(path: Path, pixel_stride: int = 3, min_conf: int = 2, max_depth: float = 5.0,
+               depth_affine: tuple[float, float] | None = None, hz: float = 10.0) -> LidarCapture:
+    """Stray Scanner export (github.com/strayrobots/scanner, docs/format.md and OdometryEncoder.swift).
+
+    - Pose: Stray writes q_WA * q_AC with q_AC a 180 deg rotation about x, i.e. camera-to-world with
+      OpenCV camera axes (x right, y down, z forward) in ARKit's world (y up). Our camera frame is
+      x right, y up, -z forward, so the pose is right-multiplied by CV_TO_OURS.
+    - Intrinsics: per frame in odometry.csv (fx, fy, cx, cy) for the RGB image; camera_matrix.csv only
+      holds the last frame's. Scaled to the depth map by depth size / real rgb.mp4 size.
+    - Frames: joined on the `frame` column (a depth PNG can be missing when ARKit gave no depth);
+      thinned to `hz` by timestamp, matching the ~10 Hz the core was tuned on (Stray records at up to
+      60 Hz)."""
+    root, warns = _find_root(path)
+    odo = _read_odometry(root / "odometry.csv")
+    K_last = np.loadtxt(root / "camera_matrix.csv", delimiter=",") if (root / "camera_matrix.csv").exists() else None
+    frames = odo["frame"].astype(int)
+    first = next((root / "depth" / f"{f:06d}" for f in frames
+                  if (root / "depth" / f"{f:06d}.png").exists() or (root / "depth" / f"{f:06d}.npy").exists()), None)
+    if first is None:
+        raise FileNotFoundError(f"no depth frames under {root / 'depth'}")
+    Hd, Wd = _read_img(first).shape[:2]
+    rgb = _rgb_size(root)
+    if rgb is None:
+        rgb = (1920, 1440)
+        warns.append("rgb.mp4 missing or unreadable: assumed 1920x1440 to scale intrinsics to the depth map")
+    sx, sy = Wd / rgb[0], Hd / rgb[1]
+    per_frame_K = all(k in odo for k in ("fx", "fy", "cx", "cy"))
+    if not per_frame_K and K_last is None:
+        raise FileNotFoundError(f"no intrinsics in {root} (odometry.csv has no fx..cy and no camera_matrix.csv)")
 
     pts, nrms, poses, ts = [], [], [], []
-    frames = np.atleast_1d(odo["frame"]).astype(int)
-    for row_i in range(0, len(frames), frame_stride):
-        f = frames[row_i]
+    last_t = -np.inf
+    Kd = None
+    for row_i, f in enumerate(frames):
+        t = odo["timestamp"][row_i]
+        if t - last_t < 1.0 / hz - 1e-6:
+            continue
         try:
             depth = _read_img(root / "depth" / f"{f:06d}").astype(np.float32) / 1000.0
             conf = _read_img(root / "confidence" / f"{f:06d}")
         except FileNotFoundError:
             continue
+        last_t = t
+        if per_frame_K:
+            fx, fy, cx, cy = (odo[k][row_i] for k in ("fx", "fy", "cx", "cy"))
+        else:
+            fx, fy, cx, cy = K_last[0, 0], K_last[1, 1], K_last[0, 2], K_last[1, 2]
+        Kd = np.array([[fx * sx, 0, cx * sx], [0, fy * sy, cy * sy], [0, 0, 1.0]])
         if depth_affine is not None:
             depth = np.where(depth > 0, (depth - depth_affine[1]) / depth_affine[0], 0).astype(np.float32)
         P, N = _frame_points(depth, conf, Kd, pixel_stride, min_conf, max_depth)
         pts.append(P); nrms.append(N)
-        r = odo[row_i]
-        Ta = np.eye(4)
-        Ta[:3, :3] = Rotation.from_quat([r["qx"], r["qy"], r["qz"], r["qw"]]).as_matrix()
-        Ta[:3, 3] = [r["x"], r["y"], r["z"]]
-        poses.append(ARKIT_TO_ZUP @ Ta)
-        ts.append(r["timestamp"])
+        Tcv = np.eye(4)
+        Tcv[:3, :3] = Rotation.from_quat([odo["qx"][row_i], odo["qy"][row_i], odo["qz"][row_i],
+                                          odo["qw"][row_i]]).as_matrix()
+        Tcv[:3, 3] = [odo["x"][row_i], odo["y"][row_i], odo["z"][row_i]]
+        poses.append(ARKIT_TO_ZUP @ Tcv @ CV_TO_OURS)
+        ts.append(t)
     if not poses:
         raise RuntimeError(f"no usable frames in {root}")
-    return LidarCapture(pts, nrms, np.asarray(poses), Kd, np.asarray(ts), root)
+    cap = LidarCapture(pts, nrms, np.asarray(poses), Kd, np.asarray(ts), root)
+    cap.load_warnings = warns
+    return cap
 
 
 # OpenCV camera (x right, y down, z forward) -> our camera convention (x right, y up, -z forward)
