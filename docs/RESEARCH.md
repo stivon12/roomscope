@@ -121,3 +121,30 @@ laser + iPhone stream) needs an academic application by the user; until then ope
 **Incident.** While verifying this, the research agent ran pycolmap probes that triggered both aborts
 above, producing several "Python quit unexpectedly" dialogs (crash reports 19:31-19:35). No project
 files or packages were changed.
+
+## 8. Photo tier: ceiling height and metric scale (not yet implemented)
+
+**Measured first (6 ARKitScenes rooms, stand-in photos).** Wall lengths +4 %, +1 %, -3 % (gate +-8 %);
+ceiling -11 %, 0 %, -59 % (a low horizontal surface taken as ceiling) and one 2.40 m fallback (no
+ceiling seen: the stand-in photos exclude up-pitched views). Some laser references were themselves
+wrong (e.g. ceiling 1.64 m): the scorer's registration is rigid, so a photo cloud with a scale error
+mis-registers.
+
+**Recommendations (research, unverified on our data).**
+1. Ceiling from image junctions, scale-free: segment wall/floor/ceiling (ADE20K SegFormer), and per
+   wall column use the angles to the ceiling line (beta) and floor line (alpha) from the gravity
+   horizon: `H = h_cam * (1 + tan(beta) / tan(alpha))` (the camera-height ratio used by LayoutNet /
+   DuLa-Net). Count 3D points as ceiling only where segmentation says ceiling.
+2. Scale from door leaf height (US 2.032 m, UK 1.981, DE 1.985): about +-2-3 %; not door widths or
+   switch/outlet heights (+-10 % or worse).
+3. Camera-height prior: generic about +-8 %; with the user's stature about +-3 %. Calibrate against
+   ARKit camera heights first.
+4. Fuse MapAnything scale, door height, camera height and mono-metric depth (MoGe-2 Rel^p 4.4-5.6 %
+   on NYUv2 / iBims) by inverse variance; aim +-3-5 %.
+5. Standard ceiling heights only as a labelled prior with a wide interval (2.44 m [2.29, 2.74]).
+6. Protocol: one level "height shot" per room in portrait or 0.5x so both junctions are in frame;
+   one photo per door showing the whole leaf.
+
+**Evaluation fix.** Score raw metric numbers first; estimate scale separately with a gravity-aligned,
+4-yaw, scale-aware registration (Open3D point-to-point ICP `with_scaling=True`, initialised from room
+corners, scale sanity range 0.7-1.3), and report scale error, shape error after scale, and raw error.
