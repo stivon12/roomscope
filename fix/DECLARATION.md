@@ -44,6 +44,36 @@ Results: `fix/before_after.md`.
   prediction was wrong: it assumed the 2-4 cm inward offset seen in an earlier pipeline version, which
   later wall-selection fixes (layered-surface rule) had already removed on 42444946.
 
-## Fix 2
+## Fix 2: wall-length intervals are uselessly wide (calibration gate)
 
-To be declared (committed and tagged before any code change).
+Declared and committed (tag `fix2-before`) before any fix code.
+
+**Worst gate.** Calibrated intervals on every number, with overconfidence penalised. LiDAR wall-length
+intervals are honest but useless: leave-one-room-out coverage 0.92 [0.81-0.98], median half-width
+**19.7 cm** for a median error of 4.8 cm (width/error 4.1), mean interval score 65.2 cm (n=51 walls,
+7 rooms, `config/calibration.json` at 56d25d9).
+
+**Root cause (evidence, `bench/wall_audit.py`, `out/diag/wall_audit_lidar.json`).** A wall's length is
+the distance between its two neighbouring walls, so its error is set by them, not by the wall itself.
+Every wall with |error| >= 9 cm has exactly one neighbour 10-20 cm off while the other is within
+~1 cm; 8 of those 11 bad neighbours were observed over <= 20 % of their length (inferred from the floor
+extent, which furniture cuts short: 8/11 lie inside the true wall). Over all 51 walls, error vs the
+smaller of the two neighbours' observed fractions: Spearman -0.53 (p = 5e-5); both neighbours >= 30 %
+observed: median error 1.4 cm (n=31); otherwise 13.7 cm (n=20). One global conformal quantile is set
+by the second group and applied to the first. (The wall's *own* observed fraction does not predict
+error, Spearman 0.01: the earlier normaliser looked at the wrong wall.)
+
+Rejected fix: placing inferred walls from the ceiling edge (research suggestion). Checked first: the
+ceiling edge near those walls is missing or runs 40-60 cm past the wall through openings; it matched
+the laser on 1 of 8. Not built.
+
+**Fix.** Mondrian (class-conditional) conformal on wall length with two bins, "corner-supported" (both
+neighbours >= 30 % observed) and "inferred" (otherwise), each with its own room-pooled quantile; the
+bin is computed from the result itself at run time, and inferred walls are labelled in the output.
+
+**Predicted after-numbers (leave-one-room-out, same 51 walls).**
+- corner-supported bin: median half-width **10-15 cm** (from 19.7), coverage >= 0.85;
+- inferred bin: median half-width 20-30 cm, coverage >= 0.85;
+- mean interval score over all walls: **<= 50 cm** (from 65.2).
+Uncertainty: the supported bin still contains ~19 % of walls above 8 cm, so its 90 % quantile cannot
+be small; this fix makes the intervals adaptive, it does not make the geometry more accurate.
