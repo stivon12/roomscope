@@ -15,6 +15,10 @@ from .core import layout as L
 from .measure import Measurement
 
 
+UNOBSERVED_FRAC = 0.3       # wall length fraction below which a wall counts as unobserved
+UNOBSERVED_POS_SE = 0.05    # m, position standard error of an inferred wall
+
+
 def _git_commit() -> str:
     try:
         return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=Path(__file__).parent,
@@ -81,20 +85,30 @@ def assemble(rooms, faces, grids, openings, warnings) -> dict:
         n = len(corners)
         walls_json = []
         area_var = 0.0
+        # observed fraction = share of the wall's LENGTH with direct returns (columns with >= 3 solid hits);
+        # the upper part of a wall is rarely scanned, so an area fraction would call every wall unobserved
+        seen_frac, pos_se = [], []
+        for k, e in enumerate(edges):
+            fi = next(i for i, f in enumerate(faces) if f.room == ri and f.wall_idx == k)
+            S = grids[fi]["solid"]
+            seen = float((S.sum(0) >= 3).mean()) if S.size else 0.0
+            seen_frac.append(seen)
+            # where the wall was not seen, its position is inferred (extended line or floor boundary):
+            # +-5 cm position uncertainty instead of the plane-fit standard error
+            pos_se.append(e.plane.se if (e.plane is not None and seen >= UNOBSERVED_FRAC) else UNOBSERVED_POS_SE)
+            if seen < UNOBSERVED_FRAC:
+                warnings.append(f"{rid}-W{k + 1}: only {seen:.0%} of its length observed; position inferred, interval widened")
         for k, e in enumerate(edges):
             p, q = corners[k], corners[(k + 1) % n]
             length = float(np.hypot(q[0] - p[0], q[1] - p[1]))
-            prev_e, next_e = edges[k - 1], edges[(k + 1) % n]
-            se = np.hypot(prev_e.plane.se if prev_e.plane else 0.03, next_e.plane.se if next_e.plane else 0.03)
-            fi = next(i for i, f in enumerate(faces) if f.room == ri and f.wall_idx == k)
-            G = grids[fi]
-            seen = (G["solid"] > 0).mean() if G["solid"].size else 0.0
+            se = np.hypot(pos_se[k - 1], pos_se[(k + 1) % n])
+            seen = seen_frac[k]
             walls_json.append({
                 "id": f"{rid}-W{k + 1}", "start": [round(p[0], 4), round(p[1], 4)], "end": [round(q[0], 4), round(q[1], 4)],
                 "length": L.meas_len(length, se).to_json(), "height": height.to_json(),
                 "observed_fraction": round(float(seen), 3),
             })
-            area_var += (length * (e.plane.se if e.plane else 0.03)) ** 2
+            area_var += (length * pos_se[k]) ** 2
             if e.plane is None:
                 warnings.append(f"{rid}-W{k + 1}: no fitted wall plane, edge taken from floor boundary")
         area = poly.area

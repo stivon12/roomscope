@@ -33,7 +33,7 @@
         "end": {"$ref": "#/$defs/point2"},
         "length": {"$ref": "#/$defs/measurement"},
         "height": {"$ref": "#/$defs/measurement"},
-        "observed_fraction": {"type": "number", "minimum": 0, "maximum": 1, "description": "Fraction of the wall surface actually seen by sensors (rest is inferred)."}
+        "observed_fraction": {"type": "number", "minimum": 0, "maximum": 1, "description": "Fraction of the wall's length with direct sensor returns; below 0.3 the wall position is inferred and its intervals widened."}
       }
     },
     "opening": {
