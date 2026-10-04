@@ -166,9 +166,13 @@ def _gravity_align(poses: np.ndarray, pts: list[np.ndarray], nrms: list[np.ndarr
     up = np.asarray(up0, float)
     sample = range(0, len(poses), max(1, len(poses) // 80))
     Nw = np.concatenate([nrms[i] @ poses[i, :3, :3].T for i in sample])
-    frac = [(np.abs(Nw[:, k]) > 0.9).mean() for k in range(3)]
-    if int(np.argmax(frac)) != int(np.argmax(np.abs(up))):
-        raise ValueError(f"gravity prior {up0} disagrees with surface normals (aligned fractions {np.round(frac, 3)})")
+    # Sanity check on the prior: a handheld phone is held upright or sideways, so one image axis (x or y)
+    # points along gravity on average (0.73-0.92 on all 9 benchmark captures). Surface-normal counts are
+    # NOT used for this: in rooms where walls outnumber floor+ceiling points they pick a wall axis.
+    img_axes = np.abs(poses[:, :3, :2].mean(0))            # columns: image x, image y in world
+    k = int(np.argmax(img_axes.max(1)))
+    if k != int(np.argmax(np.abs(up))) or img_axes.max() < 0.5:
+        raise ValueError(f"gravity prior {up0} disagrees with camera image axes (mean |axis| {img_axes.round(2).T})")
     for _ in range(3):
         d = Nw @ up
         m = np.abs(d) > np.cos(np.deg2rad(25))
