@@ -37,10 +37,12 @@ def analyse(cap, corrs, warnings: list[str]):
     cp = cloud.P[cloud.cls == "ceil"]
     ceil_z = (L.pick_level(cp, "high") - floor.c) if len(cp) > 100 else 2.4
     walls = L.fit_wall_planes(cloud, floor, ceil_z)
-    masks, g = L.segment_rooms(cloud, floor, walls)
+    masks, g, cuts, inferred = L.segment_rooms(cloud, floor, walls)
 
     rooms = []
-    for m in masks:
+    for m, inf_area in zip(masks, inferred):
+        if inf_area > 0.25:
+            warnings.append(f"{inf_area:.2f} m2 of floor inferred (enclosed by walls, not directly observed)")
         r = L.room_polygon(m, g, walls)
         if r is None:
             warnings.append("a floor region could not be turned into a closed polygon and was dropped")

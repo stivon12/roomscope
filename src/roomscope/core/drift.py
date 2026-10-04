@@ -26,7 +26,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.optimize import least_squares
 
-from .layout import FACES, classify, fit_hplane, manhattan_yaw, rz
+from .layout import FACES, classify, fit_hplane, manhattan_yaw, pick_level, rz
 
 MATCH_DIST = 0.20      # m: max offset disagreement to associate a fragment plane with a map plane
 EXTENT_SLACK = 1.0     # m: along-wall extents must overlap within this slack
@@ -132,7 +132,8 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2) -> DriftR
         obs += _frag_planes(P2, N2, k)
         fl = N2[:, 2] > 0.9
         if fl.sum() > 300:
-            hp = fit_hplane(P2[fl], z0=float(np.percentile(P2[fl, 2], 50)))
+            # lowest substantial level, not the median: in a bedroom fragment the bed top often wins
+            hp = fit_hplane(P2[fl], z0=pick_level(P2[fl], "low", min_extent_m2=0.5), iters=2)
             floor_z[k], floor_w[k] = hp.c, np.sqrt(hp.n) / max(hp.std, 0.005)
 
     # pass 3: sequential anchoring to a growing map (association + initial translations)
@@ -143,7 +144,12 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2) -> DriftR
     for oi, o in enumerate(obs):
         by_frag.setdefault(o.frag, []).append(oi)
     prev = np.zeros(3)
-    floor_ref = floor_z[~np.isnan(floor_z)][0] if (~np.isnan(floor_z)).any() else 0.0
+    floor_ref = float(np.nanmedian(floor_z)) if (~np.isnan(floor_z)).any() else 0.0
+    # ARKit's vertical drift over a few minutes is centimetres; a fragment whose "floor" is >10 cm off the
+    # median is a misdetection (rug, bed, step), so it gets no height anchor rather than a wrong one
+    bad = np.abs(floor_z - floor_ref) > 0.10
+    floor_z[bad] = np.nan
+    floor_w[bad] = 0.0
     for k in range(K):
         t[k] = prev
         ois = by_frag.get(k, [])

@@ -33,6 +33,7 @@ from ..measure import Measurement
 GRID = 0.02            # floor/wall evidence grid resolution (m)
 CLASS_COS = 0.85       # |n . axis| needed to assign a point to a planar class (~32 deg)
 FACES = {"+x": (0, 1), "-x": (0, -1), "+y": (1, 1), "-y": (1, -1)}
+SNAP_DIST = 0.30      # floor-boundary edge -> wall plane snapping radius (m)
 SYS_LEN = 0.005        # systematic floor on length uncertainty (LiDAR range bias), placeholder until conformal
 Z95 = 1.645            # 90% two-sided
 
@@ -47,7 +48,7 @@ class Cloud:
     cls: np.ndarray      # (N,) class label string codes
     cams: np.ndarray     # (F,3) camera centres (Manhattan-aligned)
     R: np.ndarray        # 4x4 Manhattan alignment applied on top of the poses/corrections
-    rays: np.ndarray     # (M,4) sampled camera->hit segments in xy (cx, cy, px, py) for free-space carving
+    rays: np.ndarray     # (M,6) sampled camera->hit segments (cx, cy, cz, px, py, pz): free space + see-over tests
 
 
 def rz(a: float) -> np.ndarray:
@@ -91,7 +92,7 @@ def voxel_mean(P: np.ndarray, key_extra: np.ndarray, voxel: float):
 
 
 def fuse(cap, corrs: np.ndarray | None = None, frame_step: int = 2, voxel: float = 0.015,
-         rays_per_frame: int = 300, seed: int = 0) -> Cloud:
+         rays_per_frame: int = 600, seed: int = 0) -> Cloud:
     rng = np.random.default_rng(seed)
     Ps, Ns, cams, rays = [], [], [], []
     for i in range(0, len(cap.poses), frame_step):
@@ -100,18 +101,17 @@ def fuse(cap, corrs: np.ndarray | None = None, frame_step: int = 2, voxel: float
         Ps.append(P); Ns.append(N)
         if len(P):
             k = rng.choice(len(P), min(rays_per_frame, len(P)), replace=False)
-            rays.append(np.c_[np.repeat(t[None, :2], len(k), 0), P[k, :2]])
+            rays.append(np.c_[np.repeat(t[None, :], len(k), 0), P[k]])
     for i in range(len(cap.poses)):
         c = None if corrs is None else corrs[i]
         cams.append(cap.world(i, c)[2])
     P, N, cams, rays = np.concatenate(Ps), np.concatenate(Ns), np.asarray(cams), np.concatenate(rays)
     yaw = manhattan_yaw(N)
     R = rz(-yaw)
-    R2 = R[:2, :2]
     P = P @ R[:3, :3].T
     N = N @ R[:3, :3].T
     cams = cams @ R[:3, :3].T
-    rays = np.c_[rays[:, :2] @ R2.T, rays[:, 2:] @ R2.T]
+    rays = np.c_[rays[:, :3] @ R[:3, :3].T, rays[:, 3:] @ R[:3, :3].T]
     cls = classify(N)
     code = np.searchsorted(np.array(["+x", "+y", "-x", "-y", "ceil", "floor", "other"]), cls)
     Pv, first = voxel_mean(P, code, voxel)
@@ -157,8 +157,13 @@ def pick_level(P: np.ndarray, side: str, min_frac: float = 0.03, min_extent_m2: 
     return float(edges[np.argmax(hs)] + 0.005)
 
 
-def fit_hplane(P: np.ndarray, z0: float | None = None, win: float = 0.04, iters: int = 4) -> HPlane:
-    """Iteratively re-weighted least squares plane z = ax+by+c on points near z0."""
+def fit_hplane(P: np.ndarray, z0: float | None = None, win: float = 0.04, iters: int = 4,
+               tilt: bool = False) -> HPlane:
+    """Horizontal level (or tilted plane z = ax+by+c if tilt=True) from points near z0, iteratively trimmed.
+
+    Level by default: the frame is gravity-aligned (ARKit), real floors and ceilings are level to ~1 cm,
+    and fitting a tilt to a ceiling seen only in patches, then evaluating it at the room centre,
+    extrapolates noise (it gave 2.16 m for a 2.44 m ceiling on scene 41069042)."""
     if z0 is None:
         h, e = np.histogram(P[:, 2], bins=np.arange(P[:, 2].min(), P[:, 2].max() + 0.01, 0.01))
         z0 = e[np.argmax(gaussian_filter1d(h.astype(float), 1))] + 0.005
@@ -169,11 +174,14 @@ def fit_hplane(P: np.ndarray, z0: float | None = None, win: float = 0.04, iters:
         Q = P[sel]
         if len(Q) < 10:
             break
-        A = np.c_[Q[:, 0], Q[:, 1], np.ones(len(Q))]
-        (a, b, c), *_ = np.linalg.lstsq(A, Q[:, 2], rcond=None)
+        if tilt:
+            A = np.c_[Q[:, 0], Q[:, 1], np.ones(len(Q))]
+            (a, b, c), *_ = np.linalg.lstsq(A, Q[:, 2], rcond=None)
+        else:
+            c = float(np.mean(Q[:, 2]))
         r = P[:, 2] - (a * P[:, 0] + b * P[:, 1] + c)
-        s = max(np.std(r[sel]), 0.003)
-        sel = np.abs(r) < 2.5 * s
+        s_ = max(np.std(r[sel]), 0.003)
+        sel = np.abs(r) < min(2.5 * s_, win)
     r = P[sel, 2] - (a * P[sel, 0] + b * P[sel, 1] + c)
     return HPlane(a, b, c, float(np.std(r)), int(sel.sum()))
 
@@ -190,6 +198,8 @@ class WallPlane:
     std: float           # residual std of inliers (m)
     n: int
     segments: list[tuple[float, float]] = field(default_factory=list)  # extents along the other axis
+    top: float = 0.0     # 97th percentile height of its points above the floor (how high it was observed)
+    kind: str = "wall"   # "wall" separates rooms; "builtin" (tall but seen over: wardrobe, closet) only bounds the polygon
 
     @property
     def se(self) -> float:
@@ -232,10 +242,51 @@ def _segments(vals: np.ndarray, bridge: float, min_len: float = 0.3, min_count: 
     return [s for s in segs if s[1] - s[0] >= min_len]
 
 
-def fit_wall_planes(cloud: Cloud, floor: HPlane, ceil_z: float, bridge: float = 1.25) -> list[WallPlane]:
+def seen_over_fraction(cloud: Cloud, floor: HPlane, axis: int, sign: int, offset: float,
+                       segs: list[tuple[float, float]], face_u: np.ndarray, face_v: np.ndarray, ceil_z: float,
+                       beyond: float = 0.25, bin_m: float = 0.10) -> float:
+    """Fraction of a candidate plane's length over which we can SEE OVER it.
+
+    A wall hides what is behind it at every height, up to the ceiling; furniture (a dresser front, a bed
+    end, a sofa back) has empty space above its top. So count rays whose camera is on the facing side,
+    whose hit lies well beyond the plane, and which cross the plane ABOVE the face's LOCAL observed top
+    (per 10 cm bin: a bed side is 0.6 m along most of its length even if its headboard reaches 1.1 m). If
+    that happens along most of the length, it is furniture. Doors and windows only open part of a wall,
+    so a real wall with openings keeps a low fraction. This works when the scan never reached the
+    ceiling, where a fixed "must be tall" test rejects real walls (scene 41069042: walls seen only to
+    1.3 m because the device was held low)."""
+    R = cloud.rays
+    c, p = R[:, :3], R[:, 3:]
+    dc = (c[:, axis] - offset) * sign
+    dp = (p[:, axis] - offset) * sign
+    m = (dc > 0.2) & (dp < -beyond)
+    if not m.any():
+        return 0.0
+    t = dc[m] / (dc[m] - dp[m])
+    X = c[m] + t[:, None] * (p[m] - c[m])
+    v = X[:, 2] - floor.z(X[:, 0], X[:, 1])
+    u = X[:, 1 - axis]
+    total, covered = 0, 0
+    for lo, hi in segs:
+        nb = max(1, int((hi - lo) / bin_m))
+        fb = ((face_u - lo) / bin_m).astype(int)
+        okf = (fb >= 0) & (fb < nb)
+        local_top = np.zeros(nb)
+        np.maximum.at(local_top, fb[okf], face_v[okf])     # bins without face points: top 0 (open)
+        rb = ((u - lo) / bin_m).astype(int)
+        okr = (rb >= 0) & (rb < nb)
+        over = okr.copy()
+        over[okr] = (v[okr] > local_top[rb[okr]] + 0.05) & (v[okr] < ceil_z - 0.05)
+        cnt = np.bincount(rb[over], minlength=nb)
+        total += nb
+        covered += int((cnt >= 2).sum())
+    return covered / max(total, 1)
+
+
+def fit_wall_planes(cloud: Cloud, floor: HPlane, ceil_z: float, bridge: float = 1.25,
+                    min_top: float = 1.0, max_seen_over: float = 0.5) -> list[WallPlane]:
     planes = []
     zrel = cloud.P[:, 2] - floor.z(cloud.P[:, 0], cloud.P[:, 1])
-    tall = min(1.9, ceil_z - 0.4)
     for face, (axis, sign) in FACES.items():
         m = (cloud.cls == face) & (zrel > 0.05) & (zrel < ceil_z - 0.05)
         Q = cloud.P[m]
@@ -258,13 +309,19 @@ def fit_wall_planes(cloud: Cloud, floor: HPlane, ceil_z: float, bridge: float = 
             sel = np.abs(x - off) < win
             if sel.sum() < 60:
                 continue
-            # tall support: real walls reach well above furniture height
-            if np.percentile(zq[sel], 97) < tall:
+            top = float(np.percentile(zq[sel], 97))
+            if top < min_top:                     # beds, dressers, tables: too low to be a wall
                 continue
             segs = _segments(Q[sel, 1 - axis], bridge)
             if not segs:
                 continue
-            planes.append(WallPlane(face, axis, sign, off, float(np.std(x[sel] - off)), int(sel.sum()), segs))
+            kind = "wall"
+            if seen_over_fraction(cloud, floor, axis, sign, off, segs, Q[sel, 1 - axis], zq[sel], ceil_z) > max_seen_over:
+                # we can see over it: furniture. Tall built-ins (wardrobes, closets) still bound the floor plan.
+                if top < 1.8:
+                    continue
+                kind = "builtin"
+            planes.append(WallPlane(face, axis, sign, off, float(np.std(x[sel] - off)), int(sel.sum()), segs, top, kind))
     return planes
 
 
@@ -285,8 +342,108 @@ class Grid2:
         return self.x0 + (np.asarray(j) + 0.5) * GRID, self.y0 + (np.asarray(i) + 0.5) * GRID
 
 
+@dataclass
+class Cut:
+    """An axis-aligned wall line used to separate rooms. axis 0: x = c for y in [lo, hi]; axis 1: y = c."""
+    axis: int
+    c: float
+    lo: float
+    hi: float
+    observed: bool       # False for an extension that closes an unobserved stretch
+
+
+def _crosses_path(cut: "Cut", cams_xy: np.ndarray) -> bool:
+    """Does the camera trajectory cross this axis-aligned segment? Nobody walks through a wall."""
+    if cams_xy is None or len(cams_xy) < 2:
+        return False
+    k, o = cut.axis, 1 - cut.axis
+    a, b = cams_xy[:-1], cams_xy[1:]
+    side_a, side_b = a[:, k] - cut.c, b[:, k] - cut.c
+    cross = side_a * side_b < 0
+    if not cross.any():
+        return False
+    t = side_a[cross] / (side_a[cross] - side_b[cross])
+    along = a[cross, o] + t * (b[cross, o] - a[cross, o])
+    return bool(np.any((along > cut.lo) & (along < cut.hi)))
+
+
+def wall_cuts(walls: list[WallPlane], corner_tol: float = 0.15, max_ext: float = 3.0,
+              cams_xy: np.ndarray | None = None) -> list[Cut]:
+    """Observed wall segments, plus extensions of their OPEN ends until they meet another wall line.
+
+    Why: a room is closed by walls, not by how far the floor happened to be seen. Where a wall stops
+    without meeting a perpendicular wall (it ran out of scan, or reached a wide opening), we continue
+    its line until it meets another wall or another such extension, so free space seen through the gap
+    cannot join the room. Ends that already meet a perpendicular wall (corners) are not extended, so an
+    L-shaped room is not split along the line of its inner corner."""
+    cuts = [Cut(w.axis, w.offset, lo, hi, True) for w in walls if w.kind == "wall" for lo, hi in w.segments]
+
+    def is_corner(cut: Cut, u: float) -> bool:
+        for o in cuts:
+            if o is cut:
+                continue
+            if o.axis != cut.axis and abs(o.c - u) < corner_tol and o.lo - corner_tol <= cut.c <= o.hi + corner_tol:
+                return True
+            if o.axis == cut.axis and abs(o.c - cut.c) < 0.05 and o.lo - corner_tol <= u <= o.hi + corner_tol \
+                    and not (cut.lo <= o.lo and o.hi <= cut.hi):
+                return True     # collinear continuation already covers this end
+        return False
+
+    rays = []                   # (cut, end u, direction)
+    for cut in cuts:
+        for u, d in ((cut.lo, -1), (cut.hi, +1)):
+            if not is_corner(cut, u):
+                rays.append((cut, u, d))
+
+    exts = []
+    for cut, u, d in rays:
+        best = max_ext
+        for o in cuts:          # perpendicular observed walls ahead
+            if o.axis != cut.axis and o.lo - 0.05 <= cut.c <= o.hi + 0.05:
+                t = (o.c - u) * d
+                if 0.02 < t < best:
+                    best = t
+            elif o is not cut and o.axis == cut.axis and abs(o.c - cut.c) < 0.05:
+                t = ((o.lo if d > 0 else o.hi) - u) * d     # collinear segment ahead: join them
+                if 0.02 < t < best:
+                    best = t
+        for cut2, u2, d2 in rays:   # another open end coming the perpendicular way
+            if cut2.axis == cut.axis:
+                continue
+            t1 = (cut2.c - u) * d   # along our line to their line
+            t2 = (cut.c - u2) * d2  # along their line to ours
+            if 0.02 < t1 < best and 0.0 <= t2 <= max_ext:
+                best = t1
+        if best < max_ext:
+            lo, hi = sorted((u, u + d * best))
+            ext = Cut(cut.axis, cut.c, lo, hi, False)
+            if not _crosses_path(ext, cams_xy):    # the camera walked through it: not a wall
+                exts.append(ext)
+    return cuts + exts
+
+
+def _clip_rays(rays2: np.ndarray, cuts: list[Cut]) -> np.ndarray:
+    """Shorten each 2-D camera->hit segment at the first cut it crosses (free space stops at walls)."""
+    c, p = rays2[:, :2], rays2[:, 2:]
+    d = p - c
+    s_min = np.ones(len(c))
+    for cut in cuts:
+        k, o = cut.axis, 1 - cut.axis
+        den = d[:, k]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            s = (cut.c - c[:, k]) / den
+        along = c[:, o] + s * d[:, o]
+        hit = (s > 1e-3) & (s < s_min) & (along >= cut.lo) & (along <= cut.hi) & (np.abs(den) > 1e-9)
+        s_min[hit] = s[hit]
+    return np.c_[c, c + d * s_min[:, None]]
+
+
 def segment_rooms(cloud: Cloud, floor: HPlane, walls: list[WallPlane], min_area: float = 1.0):
-    """Floor occupancy cut by wall lines -> connected components that contain the camera path."""
+    """Floor evidence enclosed by wall lines -> connected components that contain the camera path."""
+    cuts = wall_cuts(walls, cams_xy=cloud.cams[:, :2])
+    # built-in fronts (wardrobes, closets) bound floor and stop free space, but are never extended, so a
+    # free-standing tall cabinet cannot split a room: the room stays connected around its ends
+    cuts = cuts + [Cut(w.axis, w.offset, lo, hi, True) for w in walls if w.kind == "builtin" for lo, hi in w.segments]
     zrel = cloud.P[:, 2] - floor.z(cloud.P[:, 0], cloud.P[:, 1])
     fp = cloud.P[(cloud.cls == "floor") & (np.abs(zrel) < 0.04)]
     pad = 0.3
@@ -295,40 +452,67 @@ def segment_rooms(cloud: Cloud, floor: HPlane, walls: list[WallPlane], min_area:
     mask = np.zeros((g.h, g.w), np.uint8)
     i, j = g.ij(fp[:, 0], fp[:, 1])
     mask[i, j] = 1
-    # Free space: every camera->hit segment crosses empty floor. This fills the ~1 m blind disc under a
-    # handheld camera (it never looks straight down) and narrow hallways seen only at grazing angles.
-    # Segments that leave the building through windows are cut off by the exterior wall lines below and
-    # dropped because no camera position lies in them.
+    # Free space: a camera->hit segment crosses empty floor, but only up to the first wall line it meets.
+    # This fills the ~1 m blind disc under a handheld camera without letting space seen THROUGH an opening
+    # (another room, an unscanned area) count as this room.
     free = np.zeros_like(mask)
-    ci, cj = g.ij(cloud.rays[:, 0], cloud.rays[:, 1])
-    pi_, pj = g.ij(cloud.rays[:, 2], cloud.rays[:, 3])
+    # only rays that end no higher than the camera: they cannot pass OVER anything taller than the camera
+    # (a wardrobe), so their footprint is genuinely free floor; rays over a bed are fine (bed is in the room)
+    low = cloud.rays[:, 5] <= cloud.rays[:, 2] + 0.05
+    r2 = _clip_rays(cloud.rays[low][:, [0, 1, 3, 4]], cuts)
+    ci, cj = g.ij(r2[:, 0], r2[:, 1])
+    pi_, pj = g.ij(r2[:, 2], r2[:, 3])
     for a, b, c, d in zip(cj, ci, pj, pi_):
         cv2.line(free, (int(a), int(b)), (int(c), int(d)), 1, 1)
     mask |= free
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
-    # fill interior holes (furniture footprints) but not the outside
-    ff = mask.copy()
-    cv2.floodFill(ff, None, (0, 0), 2)
-    mask[ff == 0] = 1
     cut = mask.copy()
-    for wp in walls:
-        for lo, hi in wp.segments:
-            if wp.axis == 0:
-                (i0, j0), (i1, j1) = g.ij(wp.offset, lo), g.ij(wp.offset, hi)
-            else:
-                (i0, j0), (i1, j1) = g.ij(lo, wp.offset), g.ij(hi, wp.offset)
-            cv2.line(cut, (int(j0), int(i0)), (int(j1), int(i1)), 0, thickness=2)
+    for ct in cuts:
+        if ct.axis == 0:
+            (i0, j0), (i1, j1) = g.ij(ct.c, ct.lo), g.ij(ct.c, ct.hi)
+        else:
+            (i0, j0), (i1, j1) = g.ij(ct.lo, ct.c), g.ij(ct.hi, ct.c)
+        cv2.line(cut, (int(j0), int(i0)), (int(j1), int(i1)), 0, thickness=2)
     n, lab = cv2.connectedComponents(cut, connectivity=4)
     ci, cj = g.ij(cloud.cams[:, 0], cloud.cams[:, 1])
     inside = (ci >= 0) & (ci < g.h) & (cj >= 0) & (cj < g.w)
     visited = set(np.unique(lab[ci[inside], cj[inside]]).tolist()) - {0}
-    rooms = []
+    # barrier raster for hole filling: wall cuts AND built-in faces (a closet front bounds the room's
+    # floor even though it does not separate rooms)
+    barrier = np.zeros_like(mask)
+    lines = [(ct.axis, ct.c, ct.lo, ct.hi) for ct in cuts]
+    for axis, c0, lo, hi in lines:
+        if axis == 0:
+            (i0, j0), (i1, j1) = g.ij(c0, lo), g.ij(c0, hi)
+        else:
+            (i0, j0), (i1, j1) = g.ij(lo, c0), g.ij(hi, c0)
+        cv2.line(barrier, (int(j0), int(i0)), (int(j1), int(i1)), 1, thickness=3)
+    k30 = np.ones((int(0.3 / GRID), int(0.3 / GRID)), np.uint8)
+    rooms, inferred = [], []
     for k in range(1, n):
         m = (lab == k).astype(np.uint8)
         if m.sum() * GRID * GRID < min_area or k not in visited:
             continue
+        # Fill floor never seen directly (furniture footprints, a corner the camera skirted) when it is
+        # enclosed by this room plus walls. Drop fill thinner than 30 cm: that is the gap between two
+        # faces of a wall or a furniture slot, not floor.
+        ff = np.pad(((m | barrier) > 0).astype(np.uint8), 1)
+        cv2.floodFill(ff, None, (0, 0), 2)
+        holes = ((ff[1:-1, 1:-1] == 0) & (m == 0) & (barrier == 0)).astype(np.uint8)
+        holes = cv2.morphologyEx(holes, cv2.MORPH_OPEN, k30)
+        # only holes that touch the room directly; space sealed off behind a barrier (a closet behind its
+        # front, the cavity between two wall faces) is not this room's floor
+        nh, hl = cv2.connectedComponents(holes, connectivity=4)
+        touch = cv2.dilate(m * (1 - barrier), np.ones((3, 3), np.uint8)) > 0
+        # real contact (>= 30 cm of shared boundary), not a pixel leak where two barrier lines meet
+        cnt = np.bincount(hl[touch & (hl > 0)], minlength=nh)
+        keep = {k for k in range(1, nh) if cnt[k] >= int(0.3 / GRID)}
+        holes = np.isin(hl, list(keep)).astype(np.uint8) if keep else np.zeros_like(holes)
+        m = (m | holes).astype(np.uint8)
+        m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
         rooms.append(m)
-    return rooms, g
+        inferred.append(float(holes.sum() * GRID * GRID))
+    return rooms, g, cuts, inferred
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -370,14 +554,21 @@ def room_polygon(mask: np.ndarray, g: Grid2, walls: list[WallPlane]):
         sign = 1 if poly.contains(Point(probe)) else -1      # interior is on +axis side -> wall faces +axis
         face = ("+" if sign > 0 else "-") + "xy"[axis]
         lo, hi = sorted((p[1 - axis], q[1 - axis]))
-        best, bd = None, 0.15
+        # Observed walls beat floor extent: snap to the facing wall plane within SNAP_DIST of the floor
+        # boundary. Prefer planes whose observed extent overlaps the edge; a plane whose line merely
+        # continues past the edge (an extended wall) is allowed at a penalty.
+        best, bs = None, np.inf
         for wp in walls:
-            if wp.face != face:
+            if wp.face != face or abs(wp.offset - c) > SNAP_DIST:
                 continue
-            if not any(s0 < hi - 0.05 and s1 > lo + 0.05 for s0, s1 in wp.segments):
+            gap = min(max(0.0, s0 - hi, lo - s1) for s0, s1 in wp.segments)
+            if gap > 3.0:
                 continue
-            if abs(wp.offset - c) < bd:
-                best, bd = wp, abs(wp.offset - c)
+            # a face never seen above 1.8 m may be furniture standing against the wall: prefer a taller
+            # plane behind it when both are within snapping range (scene 41069042: dresser front vs wall)
+            score = abs(wp.offset - c) + 0.1 * gap + (0.15 if wp.top < 1.8 else 0.0)
+            if score < bs:
+                best, bs = wp, score
         edges.append(Edge(axis, best.offset if best else c, face, best))
     # merge consecutive edges on the same axis (contour steps / noise) keeping the better supported one
     merged: list[Edge] = []
