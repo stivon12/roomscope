@@ -107,7 +107,7 @@ def _frame_points(depth: np.ndarray, conf: np.ndarray, Kd: np.ndarray, pixel_str
 
 
 def load_stray(path: Path, pixel_stride: int = 3, frame_stride: int = 1, min_conf: int = 2,
-               max_depth: float = 5.0) -> LidarCapture:
+               max_depth: float = 5.0, depth_affine: tuple[float, float] | None = None) -> LidarCapture:
     root = _find_root(path)
     odo = np.genfromtxt(root / "odometry.csv", delimiter=",", names=True)
     K = np.loadtxt(root / "camera_matrix.csv", delimiter=",")
@@ -125,6 +125,8 @@ def load_stray(path: Path, pixel_stride: int = 3, frame_stride: int = 1, min_con
             conf = _read_img(root / "confidence" / f"{f:06d}")
         except FileNotFoundError:
             continue
+        if depth_affine is not None:
+            depth = np.where(depth > 0, (depth - depth_affine[1]) / depth_affine[0], 0).astype(np.float32)
         P, N = _frame_points(depth, conf, Kd, pixel_stride, min_conf, max_depth)
         pts.append(P); nrms.append(N)
         r = odo[row_i]

@@ -180,7 +180,8 @@ def assemble(rooms, faces, grids, openings, warnings) -> dict:
     return {"rooms": out_rooms, "adjacency": adjacency, "footprint": footprint, "surfaces": surfaces}
 
 
-def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, load_kw: dict | None = None) -> Path:
+def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, load_kw: dict | None = None,
+                depth_scale: float | None = None, depth_correction: bool = True, device: str | None = None) -> Path:
     t0 = time.time()
     capture = Path(capture)
     warnings: list[str] = []
@@ -189,7 +190,16 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, loa
     from .core import drift as D
     from .frontends.lidar import load_any
 
-    cap = load_any(capture, **(load_kw or {}))
+    from .core.depth_calib import resolve_depth_scale
+    load_kw = dict(load_kw or {})
+    if "depth_affine" in load_kw:              # diagnostics pass an explicit model
+        a, b = load_kw["depth_affine"]
+        ds_meta = {"enabled": True, "scale": a, "offset_m": b, "se": 0.0, "source": "explicit depth_affine"}
+    else:
+        ds = resolve_depth_scale(device, depth_scale, depth_correction)
+        load_kw["depth_affine"] = None if ds.scale == 1.0 else (ds.scale, 0.0)
+        ds_meta = ds.to_json()
+    cap = load_any(capture, **load_kw)
     if drift:
         dr = D.correct_drift(cap)
         corrs = dr.corrections
@@ -203,9 +213,9 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, loa
     result = {
         "schema_version": "1.0",
         "meta": {
-            "capture_id": capture.name, "tier": tier, "device": "unknown", "os_version": "unknown",
+            "capture_id": capture.name, "tier": tier, "device": device or "unknown", "os_version": "unknown",
             "pipeline_version": __version__, "git_commit": _git_commit(), "models": [],
-            "drift_correction": drift_meta, "runtime_s": round(time.time() - t0, 2),
+            "drift_correction": drift_meta, "depth_correction": ds_meta, "runtime_s": round(time.time() - t0, 2),
         },
         **body,
         "damage_regions": [], "concealed_flags": [], "scope_items": [],

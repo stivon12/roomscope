@@ -352,6 +352,32 @@ class Cut:
     observed: bool       # False for an extension that closes an unobserved stretch
 
 
+def _split_by_path(cut: "Cut", cams_xy: np.ndarray | None, clear: float = 0.4,
+                   min_len: float = 0.3) -> list["Cut"]:
+    """Pieces of `cut` that stay more than `clear` from every point where the camera path crosses it."""
+    if cams_xy is None or len(cams_xy) < 2:
+        return [cut]
+    k, o = cut.axis, 1 - cut.axis
+    a, b = cams_xy[:-1], cams_xy[1:]
+    sa, sb = a[:, k] - cut.c, b[:, k] - cut.c
+    cr = sa * sb < 0
+    if not cr.any():
+        return [cut]
+    t = sa[cr] / (sa[cr] - sb[cr])
+    along = a[cr, o] + t * (b[cr, o] - a[cr, o])
+    along = np.sort(along[(along > cut.lo - clear) & (along < cut.hi + clear)])
+    if not len(along):
+        return [cut]
+    pieces, start = [], cut.lo
+    for x in along:
+        if x - clear - start >= min_len:
+            pieces.append(Cut(cut.axis, cut.c, start, x - clear, cut.observed))
+        start = max(start, x + clear)
+    if cut.hi - start >= min_len:
+        pieces.append(Cut(cut.axis, cut.c, start, cut.hi, cut.observed))
+    return pieces
+
+
 def _crosses_path(cut: "Cut", cams_xy: np.ndarray) -> bool:
     """Does the camera trajectory cross this axis-aligned segment? Nobody walks through a wall."""
     if cams_xy is None or len(cams_xy) < 2:
@@ -377,6 +403,10 @@ def wall_cuts(walls: list[WallPlane], corner_tol: float = 0.15, max_ext: float =
     cannot join the room. Ends that already meet a perpendicular wall (corners) are not extended, so an
     L-shaped room is not split along the line of its inner corner."""
     cuts = [Cut(w.axis, w.offset, lo, hi, True) for w in walls if w.kind == "wall" for lo, hi in w.segments]
+    # nobody walks through a wall: drop the stretch of an observed segment the camera path crosses
+    # (segments are bridged over 1.25 m gaps, so a door leaf plus stray points can form a fake wall
+    # across a room; on 42444946 that split one room in two)
+    cuts = [p for c in cuts for p in _split_by_path(c, cams_xy)]
 
     def is_corner(cut: Cut, u: float) -> bool:
         for o in cuts:

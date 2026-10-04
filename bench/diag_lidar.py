@@ -54,7 +54,7 @@ def main():
         for drift in (False, True):
             name = f"{'corr' if corr else 'raw'}_{'drift' if drift else 'nodrift'}"
             kw = {"depth_affine": tuple(a.affine)} if corr else None
-            run_capture(a.scene, "lidar", out / name, drift=drift, load_kw=kw)
+            run_capture(a.scene, "lidar", out / name, drift=drift, load_kw=kw, depth_correction=corr)
             sc, ref = score_capture(out / name / a.scene.name, a.scene, return_ref=True)
             res = json.loads((out / name / a.scene.name / "result.json").read_text())
             ce = [r["err"] for r in sc["ceil"]]

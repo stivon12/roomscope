@@ -1,0 +1,8 @@
+# LiDAR depth scale a = measured / true (depth is divided by a at load time).
+# Measured per pixel against Faro-laser-rendered depth (src/roomscope/eval/depth_bias.py).
+# Held-out rule: the default below is fitted on 42444949 + 42444950 only; 42444946 is the scored scene.
+default:
+  scale: 0.9883          # -1.17%: median of -1.10% (42444949) and -1.23% (42444950)
+  se: 0.004              # widened from the 0.07% capture spread: transfer to other devices is unverified
+  source: "ARKitScenes iPad Pro (2020) LiDAR, Faro reference, captures 42444949+42444950"
+devices: {}              # e.g. "iPhone 15 Pro": {scale: ..., se: ..., source: "benchmark tape, rooms A-C"}
