@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .recon import run_mapanything, to_capture
+from .recon import reray_known_K, run_mapanything, to_capture
 
 IMG_EXT = {".jpg", ".jpeg", ".png", ".heic", ".heif"}
 
@@ -49,4 +49,5 @@ def load_room(folder: Path, scale: float = 1.0):
     if len(ims) < 2:
         raise ValueError(f"{folder.name}: need at least 2 photos, found {len(ims)}")
     views = run_mapanything(ims, cache=Path(folder) / ".cache")
+    reray_known_K(views, ims)
     return to_capture(views, np.arange(len(ims), dtype=float), folder, scale=scale)

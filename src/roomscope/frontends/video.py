@@ -14,7 +14,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .recon import fuse_sfm_depth, run_mapanything, sfm_poses, to_capture
+from .recon import fuse_sfm_depth, reray_known_K, run_mapanything, sfm_poses, to_capture
 
 VIDEO_EXT = {".mov", ".mp4", ".m4v", ".avi"}
 
@@ -160,4 +160,5 @@ def load_video(path: Path, work_dir: Path, n_frames: int = 32, scale: float = 1.
         print("SfM too sparse; falling back to MapAnything alone")
     paths, ts = extract_keyframes(video, work_dir / "frames", n=n_frames)
     views = run_mapanything(paths, cache=work_dir / "cache")
+    reray_known_K(views, paths)
     return to_capture(views, ts, Path(path), scale=scale)

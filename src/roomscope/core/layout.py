@@ -512,8 +512,14 @@ def _clip_rays(rays2: np.ndarray, cuts: list[Cut]) -> np.ndarray:
     return np.c_[c, c + d * s_min[:, None]]
 
 
-def segment_rooms(cloud: Cloud, floor: HPlane, walls: list[WallPlane], min_area: float = 1.0):
-    """Floor evidence enclosed by wall lines -> connected components that contain the camera path."""
+def segment_rooms(cloud: Cloud, floor: HPlane, walls: list[WallPlane], min_area: float = 1.0,
+                  single_room: bool = False):
+    """Floor evidence enclosed by wall lines -> connected components that contain the camera path.
+
+    single_room (photo tier: one folder = one room by protocol): 2-8 photos see the floor only in
+    patches, because furniture hides it between views (42444946: four disconnected patches 1.5-2 m apart
+    inside walls 4.2 x 4.2 m apart; the camera-path rule kept one 2.4 m2 patch). Then the room is the
+    convex hull of the floor patches and wall points, snapped to the wall planes by room_polygon."""
     cuts = wall_cuts(walls, cams_xy=cloud.cams[:, :2])
     # built-in fronts (wardrobes, closets) bound floor and stop free space, but are never extended, so a
     # free-standing tall cabinet cannot split a room: the room stays connected around its ends
@@ -521,8 +527,12 @@ def segment_rooms(cloud: Cloud, floor: HPlane, walls: list[WallPlane], min_area:
     zrel = cloud.P[:, 2] - floor.z(cloud.P[:, 0], cloud.P[:, 1])
     fp = cloud.P[(cloud.cls == "floor") & (np.abs(zrel) < 0.04)]
     pad = 0.3
-    g = Grid2(fp[:, 0].min() - pad, fp[:, 1].min() - pad,
-              int((np.ptp(fp[:, 0]) + 2 * pad) / GRID) + 1, int((np.ptp(fp[:, 1]) + 2 * pad) / GRID) + 1)
+    ext = fp[:, :2]
+    if single_room:                 # the grid must also cover walls standing beyond the visible floor
+        wl0 = np.isin(cloud.cls, ["+x", "-x", "+y", "-y"]) & (zrel > 0.1) & (zrel < 2.0)
+        ext = np.concatenate([ext, cloud.P[wl0, :2]])
+    g = Grid2(ext[:, 0].min() - pad, ext[:, 1].min() - pad,
+              int((np.ptp(ext[:, 0]) + 2 * pad) / GRID) + 1, int((np.ptp(ext[:, 1]) + 2 * pad) / GRID) + 1)
     mask = np.zeros((g.h, g.w), np.uint8)
     i, j = g.ij(fp[:, 0], fp[:, 1])
     mask[i, j] = 1
@@ -547,6 +557,20 @@ def segment_rooms(cloud: Cloud, floor: HPlane, walls: list[WallPlane], min_area:
         else:
             (i0, j0), (i1, j1) = g.ij(ct.lo, ct.c), g.ij(ct.hi, ct.c)
         cv2.line(cut, (int(j0), int(i0)), (int(j1), int(i1)), 0, thickness=2)
+    if single_room:
+        # convex hull of the floor patches and the low wall points (walls bound the room even where the
+        # floor in front of them is hidden); room_polygon then snaps its edges to the wall planes.
+        # Known limit: an L-shaped room is filled to its hull.
+        wl = np.isin(cloud.cls, ["+x", "-x", "+y", "-y"]) & (zrel > 0.1) & (zrel < 2.0)
+        pts = np.concatenate([fp[:, :2], cloud.P[wl, :2]])
+        pts = pts[(pts[:, 0] >= g.x0) & (pts[:, 1] >= g.y0)]
+        ii, jj = g.ij(pts[:, 0], pts[:, 1])
+        okk = (ii >= 0) & (ii < g.h) & (jj >= 0) & (jj < g.w)
+        if okk.sum() >= 3:
+            hull = cv2.convexHull(np.stack([jj[okk], ii[okk]], 1).astype(np.int32))
+            m = np.zeros_like(mask)
+            cv2.fillConvexPoly(m, hull, 1)
+            return [m], g, cuts, [float(max(0, m.sum() - (mask & m).sum()) * GRID * GRID)]
     n, lab = cv2.connectedComponents(cut, connectivity=4)
     ci, cj = g.ij(cloud.cams[:, 0], cloud.cams[:, 1])
     inside = (ci >= 0) & (ci < g.h) & (cj >= 0) & (cj < g.w)

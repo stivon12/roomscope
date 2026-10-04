@@ -33,7 +33,7 @@ def _name_room(poly: Polygon, k: int) -> str:
     return "Hallway" if w < 1.6 and h / max(w, 1e-6) > 2.5 else f"Room {k + 1}"
 
 
-def analyse(cap, corrs, warnings: list[str]):
+def analyse(cap, corrs, warnings: list[str], single_room: bool = False):
     """Shared geometry core on posed frames. Returns plain-python room/opening structures."""
     cloud = L.fuse(cap, corrs)
     fp = cloud.P[cloud.cls == "floor"]
@@ -41,7 +41,7 @@ def analyse(cap, corrs, warnings: list[str]):
     cp = cloud.P[cloud.cls == "ceil"]
     ceil_z = (L.pick_level(cp, "high") - floor.c) if len(cp) > 100 else 2.4
     walls = L.fit_wall_planes(cloud, floor, ceil_z)
-    masks, g, cuts, inferred = L.segment_rooms(cloud, floor, walls)
+    masks, g, cuts, inferred = L.segment_rooms(cloud, floor, walls, single_room=single_room)
 
     rooms = []
     for m, inf_area in zip(masks, inferred):
@@ -180,7 +180,7 @@ def assemble(rooms, faces, grids, openings, warnings) -> dict:
     return {"rooms": out_rooms, "adjacency": adjacency, "footprint": footprint, "surfaces": surfaces}
 
 
-def _geometry(cap, drift: bool, warnings: list[str]):
+def _geometry(cap, drift: bool, warnings: list[str], single_room: bool = False):
     """Shared core on one posed capture: drift correction (or the ablation), layout, assembly."""
     from .core import drift as D
     if drift:
@@ -191,7 +191,7 @@ def _geometry(cap, drift: bool, warnings: list[str]):
     else:
         corrs = D.identity(cap)
         drift_meta = {"enabled": False, "method": "none (ablation: odometry poses used as-is)"}
-    rooms, faces, grids, openings, cloud = analyse(cap, corrs, warnings)
+    rooms, faces, grids, openings, cloud = analyse(cap, corrs, warnings, single_room=single_room)
     return assemble(rooms, faces, grids, openings, warnings), cloud, drift_meta
 
 
@@ -259,7 +259,7 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, loa
         for k, folder in enumerate(room_folders(capture)):
             w: list[str] = []
             cap = load_room(folder)
-            b, cloud, _ = _geometry(cap, False, w)
+            b, cloud, _ = _geometry(cap, False, w, single_room=True)
             if not b["rooms"]:
                 warnings.append(f"{folder.name}: no room could be reconstructed from its photos")
                 continue

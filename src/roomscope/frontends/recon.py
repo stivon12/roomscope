@@ -117,6 +117,36 @@ def run_mapanything(image_paths: list[Path], conf_percentile: float = 30.0, cach
     return out
 
 
+def reray_known_K(views: list[dict], image_paths: list[Path]) -> int:
+    """Replace MapAnything's predicted ray directions with the KNOWN camera's, keeping its depth along each
+    ray. Given true intrinsics, MapAnything still predicts its own rays: on the 42444946 photos its focal
+    ranged 0.68-1.09x the true one per view, so each view's surfaces were unprojected through a different
+    wrong field of view (floors tilted 25-60 deg, vertical span 4 m in a 3 m room). Images are resized to
+    the model width and centre-cropped (MapAnything fixed-mapping preprocessing). Returns views changed."""
+    from PIL import Image
+    n = 0
+    for v, p in zip(views, image_paths):
+        K = image_intrinsics(p)
+        if K is None:
+            continue
+        W0, H0 = Image.open(p).size
+        H, W = v["pts_cam"].shape[:2]
+        sc = max(W / W0, H / H0)
+        ox, oy = (W0 * sc - W) / 2, (H0 * sc - H) / 2
+        Kk = K.astype(np.float64).copy()
+        Kk[:2] *= sc
+        Kk[0, 2] -= ox
+        Kk[1, 2] -= oy
+        uu, vv = np.meshgrid(np.arange(W) + 0.5, np.arange(H) + 0.5)
+        ray = np.stack([(uu - Kk[0, 2]) / Kk[0, 0], (vv - Kk[1, 2]) / Kk[1, 1], np.ones_like(uu)], -1)
+        ray /= np.linalg.norm(ray, axis=-1, keepdims=True)
+        dist = np.linalg.norm(v["pts_cam"], axis=-1, keepdims=True)
+        v["pts_cam"] = (ray * dist).astype(np.float32)
+        v["K_model"], v["K"] = v["K"], Kk.astype(np.float32)
+        n += 1
+    return n
+
+
 def _manhattan_up(normals: np.ndarray, cams: np.ndarray, up_prior: np.ndarray | None = None) -> np.ndarray:
     """Unit 'up' in the reconstruction's world frame (see module docstring)."""
     N = normals[np.random.default_rng(0).choice(len(normals), min(len(normals), 200_000), replace=False)]
@@ -164,8 +194,59 @@ def _rot_to_z(up: np.ndarray) -> np.ndarray:
     return np.eye(3) + vx + vx @ vx * (1 / (1 + c))
 
 
+def _rz(a: float) -> np.ndarray:
+    c, s_ = np.cos(a), np.sin(a)
+    return np.array([[c, -s_, 0], [s_, c, 0], [0, 0, 1.0]])
+
+
+def manhattan_snap(poses: np.ndarray, nrms: list[np.ndarray], min_pts: int = 300,
+                   max_tilt_deg: float = 15.0) -> tuple[np.ndarray, list[dict]]:
+    """Per-view rotation correction under the Manhattan-world assumption (gravity-aligned, z up).
+
+    Feed-forward reconstructions get individual view rotations wrong by a few degrees, and one view in
+    eight by ~18 deg (42444946 photos vs ARKit, MapAnything and VGGT alike), which is enough to break the
+    room layout. Interiors have one vertical and two horizontal dominant directions, so each view is
+    rotated about its own camera centre:
+    1. tilt: its floor/ceiling normals onto +z (if it sees >= min_pts of them, correction <= max_tilt);
+    2. yaw: its wall normals onto the room's dominant axes, the nearest one (correction within +-45 deg).
+    The room's axes come from all views, iteratively ignoring views more than 10 deg off."""
+    from ..core.layout import manhattan_yaw
+    poses = poses.copy()
+    wrap = lambda a: (a + np.pi / 4) % (np.pi / 2) - np.pi / 4
+    log = []
+    for i in range(len(poses)):                       # tilt
+        Nw = nrms[i] @ poses[i, :3, :3].T
+        h = Nw[np.abs(Nw[:, 2]) > 0.85]
+        if len(h) >= min_pts:
+            u = (h * np.sign(h[:, 2])[:, None]).mean(0)
+            u /= np.linalg.norm(u)
+            ang = np.degrees(np.arccos(np.clip(u[2], -1, 1)))
+            if ang <= max_tilt_deg:
+                poses[i, :3, :3] = _rot_to_z(u) @ poses[i, :3, :3]
+                log.append({"view": i, "tilt_deg": round(float(ang), 2)})
+    yaws, wts = np.zeros(len(poses)), np.zeros(len(poses))
+    for i in range(len(poses)):
+        Nw = nrms[i] @ poses[i, :3, :3].T
+        wall = np.abs(Nw[:, 2]) < 0.3
+        if wall.sum() >= min_pts:
+            yaws[i], wts[i] = manhattan_yaw(Nw), wall.sum()
+    ok = wts > 0
+    if ok.sum() == 0:
+        return poses, log
+    g = 0.0
+    for _ in range(3):
+        c, s_ = np.average(np.cos(4 * yaws[ok]), weights=wts[ok]), np.average(np.sin(4 * yaws[ok]), weights=wts[ok])
+        g = np.arctan2(s_, c) / 4
+        ok = (wts > 0) & (np.abs(wrap(yaws - g)) < np.deg2rad(10)) if ((wts > 0) & (np.abs(wrap(yaws - g)) < np.deg2rad(10))).sum() >= 2 else ok
+    for i in np.where(wts > 0)[0]:
+        d = wrap(g - yaws[i])
+        poses[i, :3, :3] = _rz(d) @ poses[i, :3, :3]
+        log.append({"view": int(i), "yaw_deg": round(float(np.degrees(d)), 2)})
+    return poses, log
+
+
 def to_capture(views: list[dict], timestamps: np.ndarray, root: Path, pixel_stride: int = 2,
-               scale: float = 1.0) -> LidarCapture:
+               scale: float = 1.0, snap: bool = True) -> LidarCapture:
     """MapAnything views -> LidarCapture (our camera frame x right, y up, -z forward; z-up world)."""
     pts, nrms, poses = [], [], []
     for v in views:
@@ -188,8 +269,13 @@ def to_capture(views: list[dict], timestamps: np.ndarray, root: Path, pixel_stri
     G = np.eye(4)
     G[:3, :3] = _rot_to_z(up)
     poses = np.einsum("ij,fjk->fik", G, poses)
+    snap_log = []
+    if snap:
+        poses, snap_log = manhattan_snap(poses, nrms)
     K = views[0]["K"].astype(np.float64)
-    return LidarCapture(pts, nrms, poses, K, np.asarray(timestamps, float), Path(root), align=G)
+    cap = LidarCapture(pts, nrms, poses, K, np.asarray(timestamps, float), Path(root), align=G)
+    cap.snap_log = snap_log
+    return cap
 
 
 
