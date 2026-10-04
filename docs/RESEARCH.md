@@ -97,3 +97,27 @@ LiDAR reads door frames ~1.4 cm narrow (FIG 2022). No published phone method sho
 and the systematic bias); multi-view high-res RGB jamb localisation next. Ground truth: ScanNet++ (Faro
 laser + iPhone stream) needs an academic application by the user; until then openings carry
 "conformal-transfer" intervals.
+
+## 7. Video SfM stack on an M1 Mac (follow-up to section 4)
+
+**Findings (verified in this venv unless marked).**
+- pip `pycolmap` 4.2.1 is built without ONNX: creating an ALIKED extractor or the SIFT-LightGlue matcher
+  raises an uncaught C++ error and aborts Python. Use SIFT only (conda-forge colmap has ONNX).
+- `pycolmap` and `torch` each ship their own `libomp`; loading both in one process aborts ("OMP: Error
+  #15"), in either import order (hloc issue #491). Run COLMAP and torch stages in separate processes.
+  `KMP_DUPLICATE_LIB_OK=TRUE` is documented as unsafe and was not adopted.
+- Fix intrinsics through `ImageReaderOptions(camera_model="PINHOLE", camera_params=...)` with
+  `CameraMode.SINGLE`, and `ba_refine_focal_length/principal_point/extra_params = False`; sequential
+  matching with overlap 15 on 150-300 dense frames. The earlier 3/32 registration used 32 sparse
+  keyframes and per-image cameras.
+- Metric depth for the scale step: Depth Pro (`infer(img, f_px=...)`, any torch device; Apple sample
+  code licence) is the lowest-risk choice on a Mac. DA3METRIC-LARGE (Apache-2.0) runs on MPS only via
+  a community fork (unverified here). MoGe-2's main branch does not install on macOS; UniDepthV2 is
+  CUDA-only and CC BY-NC.
+- MPS attention correctness: torch 2.14.1 on macOS 26.1 / M1 Pro matches the CPU reference (max error
+  4.8e-7 fp32) on the upstream repro of pytorch#163597. The reported macOS 26 regression is not
+  present on this setup.
+
+**Incident.** While verifying this, the research agent ran pycolmap probes that triggered both aborts
+above, producing several "Python quit unexpectedly" dialogs (crash reports 19:31-19:35). No project
+files or packages were changed.
