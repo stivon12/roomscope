@@ -1,10 +1,38 @@
+# --- Python / tooling ---
 __pycache__/
 *.pyc
-.venv/
-weights/
-out/
 *.egg-info/
+.venv/
+.pytest_cache/
 .DS_Store
-# raw captures are large: tracked via benchmark/raw/MANIFEST.md + fetch script, not git
-benchmark/raw/*/
+
+# --- Third-party checkouts (fetched by scripts, not vendored) ---
 third_party/
+
+# --- Model weights: fetched by scripts/fetch_weights.sh, never committed ---
+weights/*
+!weights/.gitkeep
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+*.bin
+
+# --- Datasets & captures: listed in benchmark/raw/MANIFEST.md, never committed ---
+benchmark/raw/*
+!benchmark/raw/MANIFEST.md
+!benchmark/raw/.gitkeep
+*.ply
+*.npy
+*.npz
+*.zip
+*.mov
+*.mp4
+*.traj
+*.pincam
+
+# --- Run outputs & caches (regenerable) ---
+out/*
+!out/.gitkeep
+cache/
