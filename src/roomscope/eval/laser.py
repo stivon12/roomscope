@@ -145,9 +145,9 @@ def laser_reference(laser_dir: Path, P_ours: np.ndarray, N_ours: np.ndarray, cac
     """Registered, cropped, 1 cm laser reference in the RESULT frame, cached per visit.
 
     1) coarse: every 50th point of each scan at 5 cm -> register to the capture (rigid);
-    2) fine: capture bbox + margin mapped into the laser frame, streaming crop at 1 cm;
-    3) refine registration with ICP on the fine cloud. The cache stores the fine cloud in the laser
-       frame plus its crop box; it is reused when the box covers this capture."""
+    2) fine: fixed box around the scanners (+-6 m, +-2.5 m), streaming crop at 1 cm, cached once per
+       visit so every run scores against byte-identical reference points;
+    3) refine registration with ICP on the fine cloud."""
     laser_dir = Path(laser_dir)
     cache = Path(cache_dir) / f"{laser_dir.name}.npz"
     # the visit covers several storeys and returns through windows; the scanned rooms are around the
@@ -167,18 +167,17 @@ def laser_reference(laser_dir: Path, P_ours: np.ndarray, N_ours: np.ndarray, cac
         np.savez_compressed(coarse_cache, P=np.asarray(coarse.points).astype(np.float32),
                             N=np.asarray(coarse.normals).astype(np.float32))
     T0, _ = register_to(coarse, P_ours, N_ours)          # laser -> result
-    Ti = np.linalg.inv(T0)
-    lo_r, hi_r = P_ours.min(0) - margin, P_ours.max(0) + margin
-    corners = np.array([[x, y, z] for x in (lo_r[0], hi_r[0]) for y in (lo_r[1], hi_r[1]) for z in (lo_r[2], hi_r[2])])
-    cl = corners @ Ti[:3, :3].T + Ti[:3, 3]
-    box = (cl.min(0), cl.max(0))
+    # The fine reference is cropped to a FIXED box around the scanners, not to this capture: a
+    # capture-dependent crop rewrote the cache between runs and RANSAC on a slightly different point
+    # set gave different reference planes (wall errors moved 4 -> 8 cm on identical inputs).
+    box = (np.r_[c0[:2] - 6, c0[2] - 2.5], np.r_[c0[:2] + 6, c0[2] + 2.5])
     fine = None
     if cache.exists():
         z = np.load(cache)
-        if np.all(z["box_lo"] <= box[0] + 1e-6) and np.all(z["box_hi"] >= box[1] - 1e-6):
+        if np.allclose(z["box_lo"], box[0]) and np.allclose(z["box_hi"], box[1]):
             fine = o3d.geometry.PointCloud()
-            fine.points = o3d.utility.Vector3dVector(z["P"])
-            fine.normals = o3d.utility.Vector3dVector(z["N"])
+            fine.points = o3d.utility.Vector3dVector(z["P"].astype(np.float64))
+            fine.normals = o3d.utility.Vector3dVector(z["N"].astype(np.float64))
     if fine is None:
         fine = load_laser(laser_dir, voxel=0.01, bbox=box)
         cache.parent.mkdir(parents=True, exist_ok=True)
@@ -314,9 +313,11 @@ class RefPlane:
     n_pts: int
 
 
-def extract_planes(pc: o3d.geometry.PointCloud, max_planes: int = 40, dist: float = 0.01,
-                   min_pts: int = 1500) -> list[RefPlane]:
-    """Iterative RANSAC on the (registered) laser cloud. Independent of the pipeline's plane finder."""
+def extract_planes(pc: o3d.geometry.PointCloud, max_planes: int = 80, dist: float = 0.01,
+                   min_pts: int = 1500, seed: int = 0) -> list[RefPlane]:
+    """Iterative RANSAC on the (registered) laser cloud. Independent of the pipeline's plane finder.
+    Seeded: unseeded RANSAC changed which walls got a reference between identical runs."""
+    o3d.utility.random.seed(seed)
     rest = o3d.geometry.PointCloud(pc)
     planes = []
     for _ in range(max_planes):
@@ -335,60 +336,71 @@ def extract_planes(pc: o3d.geometry.PointCloud, max_planes: int = 40, dist: floa
     return planes
 
 
-def score_result(result: dict, planes: list[RefPlane], laser_reg: o3d.geometry.PointCloud,
-                 match_dist: float = 0.10, match_deg: float = 10.0) -> dict:
-    """Per-room ceiling height and per-wall errors against laser reference (result frame)."""
+def _ref_wall_offset(L: np.ndarray, LN: np.ndarray, axis: int, inward: np.ndarray, c: float, lo: float,
+                     hi: float, floor_z: float, win: float = 0.20) -> tuple[float, int] | None:
+    """Laser reference position of one axis-aligned wall: laser points facing the same way (within 15
+    deg), within +-win of the reported line, over the wall's middle stretch and 0.3-2.0 m height; the
+    1 cm histogram peak refined by a trimmed mean. Deterministic (no RANSAC)."""
+    shrink = min(0.1, 0.25 * (hi - lo))
+    m = (LN @ inward > np.cos(np.deg2rad(15))) & (np.abs(L[:, axis] - c) < win)
+    m &= (L[:, 1 - axis] > lo + shrink) & (L[:, 1 - axis] < hi - shrink)
+    m &= (L[:, 2] > floor_z + 0.3) & (L[:, 2] < floor_z + 2.0)
+    x = L[m, axis]
+    if len(x) < 200:
+        return None
+    h, e = np.histogram(x, np.arange(c - win, c + win + 0.01, 0.01))
+    off = e[np.argmax(h)] + 0.005
+    for _ in range(3):
+        sel = np.abs(x - off) < 0.02
+        off = float(np.mean(x[sel]))
+    return off, int((np.abs(x - off) < 0.02).sum())
+
+
+def score_result(result: dict, laser_reg: o3d.geometry.PointCloud) -> dict:
+    """Per-room ceiling height, per-wall position and per-wall length errors against the laser
+    (result frame). Wall lengths use the reference positions of the two walls that bound them."""
     from shapely import contains_xy
     from shapely.geometry import Polygon
 
     L = np.asarray(laser_reg.points)
     LN = np.asarray(laser_reg.normals)
-    cosm = np.cos(np.deg2rad(match_deg))
     out = {"ceil": [], "walls": [], "wall_planes": []}
     for room in result["rooms"]:
         poly = Polygon(room["polygon"])
         inner = poly.buffer(-0.2)
         inside = contains_xy(inner, L[:, 0], L[:, 1])
-        # reference ceiling height: robust plane levels of laser floor/ceiling inside the room footprint
         fz = L[inside & (LN[:, 2] > 0.95), 2]
         cz = L[inside & (LN[:, 2] < -0.95), 2]
-        if len(fz) > 200 and len(cz) > 200:
-            f_lvl = np.median(fz[np.abs(fz - np.percentile(fz, 10)) < 0.03])
-            c_lvl = np.median(cz[np.abs(cz - np.percentile(cz, 90)) < 0.03])
-            ref_h = float(c_lvl - f_lvl)
+        f_lvl = None
+        if len(fz) > 200:
+            f_lvl = float(np.median(fz[np.abs(fz - np.percentile(fz, 10)) < 0.03]))
+        if f_lvl is not None and len(cz) > 200:
+            c_lvl = float(np.median(cz[np.abs(cz - np.percentile(cz, 90)) < 0.03]))
+            ref_h = c_lvl - f_lvl
             ch = room["ceiling_height"]
             out["ceil"].append({"room": room["id"], "ref": ref_h, "err": ch["value"] - ref_h,
                                 "covered": ch["lo"] <= ref_h <= ch["hi"]})
-        # walls: match each polygon edge's plane to a laser plane (same facing, offset within match_dist)
+        if f_lvl is None:
+            f_lvl = float(np.percentile(L[LN[:, 2] > 0.95, 2], 5))
         n_c = len(room["polygon"])
-        edge_ref = []
+        ref = []
         for k in range(n_c):
             p, q = np.array(room["polygon"][k]), np.array(room["polygon"][(k + 1) % n_c])
             t = (q - p) / np.linalg.norm(q - p)
-            inward = np.array([-t[1], t[0], 0.0])          # CCW polygon -> left normal points inside
-            mid = np.r_[(p + q) / 2, 1.2]
-            best, bd = None, match_dist
-            for pl in planes:
-                if pl.normal @ inward < cosm:
-                    continue
-                dist = abs(pl.normal @ mid - pl.d)
-                if dist < bd:
-                    best, bd = pl, dist
-            edge_ref.append(best)
-            if best is not None:
+            axis = 0 if abs(t[0]) < abs(t[1]) else 1              # vertical edge: x = const
+            inward = np.array([-t[1], t[0], 0.0])                 # CCW polygon: left normal points inside
+            c = p[axis]
+            lo, hi = sorted((p[1 - axis], q[1 - axis]))
+            r = _ref_wall_offset(L, LN, axis, inward, c, lo, hi, f_lvl)
+            ref.append(None if r is None else r[0])
+            if r is not None:
                 out["wall_planes"].append({"room": room["id"], "wall": f"{room['id']}-W{k + 1}",
-                                           "offset_err": float(best.normal @ mid - best.d)})
+                                           "offset_err": float(c - r[0]), "n_ref": r[1]})
         for k, w in enumerate(room["walls"]):
-            a, b = edge_ref[k - 1], edge_ref[(k + 1) % n_c]
+            a, b = ref[k - 1], ref[(k + 1) % n_c]
             if a is None or b is None:
                 continue
-            s, e = np.array(w["start"]), np.array(w["end"])
-            t = np.r_[(e - s) / np.linalg.norm(e - s), 0]
-            # reference length: distance between the two perpendicular reference planes along the wall
-            pa = np.r_[s, 1.2]
-            ta = (a.d - a.normal @ pa) / (a.normal @ t)
-            tb = (b.d - b.normal @ pa) / (b.normal @ t)
-            ref_len = float(abs(tb - ta))
+            ref_len = abs(b - a)
             L_ = w["length"]
             out["walls"].append({"room": room["id"], "wall": w["id"], "ref": ref_len, "err": L_["value"] - ref_len,
                                  "rel": L_["value"] / ref_len - 1, "covered": L_["lo"] <= ref_len <= L_["hi"]})
@@ -426,13 +438,15 @@ def score_capture(out_dir: Path, scene_root: Path) -> dict:
         T, fit = refine_registration(ref, P, N, cl["T_world_to_result"])
         ref.transform(T)
         source = "highres_depth (Faro mesh rendered at ARKit poses)"
-    # keep the part of the venue the capture actually covers (laser scans span the whole visit)
-    lo, hi = P.min(0) - 0.5, P.max(0) + 0.5
+    # keep the rooms we report on (+0.5 m), not everything glimpsed through doorways: the reference
+    # planes should be the walls being scored
+    R = np.concatenate([np.asarray(rm["polygon"]) for rm in result["rooms"]])
+    lo = np.r_[R.min(0) - 0.5, P[:, 2].min() - 0.3]
+    hi = np.r_[R.max(0) + 0.5, P[:, 2].max() + 0.3]
     Lp = np.asarray(ref.points)
     ref = ref.select_by_index(np.where(np.all((Lp > lo) & (Lp < hi), axis=1))[0])
-    planes = extract_planes(ref)
-    sc = score_result(result, planes, ref)
-    sc.update({"reference": source, "icp_fitness": fit, "n_ref_planes": len(planes),
+    sc = score_result(result, ref)
+    sc.update({"reference": source, "icp_fitness": fit, "n_ref_planes": len(sc["wall_planes"]),
                "drift": result["meta"]["drift_correction"]})
     return sc
 
@@ -441,7 +455,7 @@ if __name__ == "__main__":
     import sys
 
     s = score_capture(Path(sys.argv[1]), Path(sys.argv[2]))
-    print(f"reference={s['reference']} icp_fitness={s['icp_fitness']:.3f} planes={s['n_ref_planes']}")
+    print(f"reference={s['reference']} icp_fitness={s['icp_fitness']:.3f} walls_with_ref={s['n_ref_planes']}")
     print(summarise(s))
     if "-v" in sys.argv:
         for k in ("ceil", "walls", "wall_planes"):

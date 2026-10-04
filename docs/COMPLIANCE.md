@@ -24,9 +24,9 @@ Status: ✅ done & verified · 🟡 partial · ⬜ not started · ❌ known fail
 | B.4 | ≥1 room captured twice per tier | `benchmark/raw/MANIFEST.md` | raw data | ⬜ |
 | B.5 | Laser/tape ground truth on everything | `benchmark/gt/*.yaml` | GT files | ⬜ |
 | G.1 | Openings ≤2 cm on ≥85%, misses+phantoms scored | `bench/gates.py` | `bench/results/gates.md` | ⬜ |
-| G.2 | Ceiling ≤1.5 cm; multi-capture spread ≤1 cm; bias vs variance stated | `src/roomscope/eval/laser.py`, `tests/test_lidar_real.py` | test vs Faro laser | 🟡 test written, awaiting GT scene 42444946 |
+| G.2 | Ceiling ≤1.5 cm; multi-capture spread ≤1 cm; bias vs variance stated | `src/roomscope/eval/laser.py`, `tests/test_lidar_real.py` | test vs Faro laser | ❌ ceiling −3.0 cm vs Faro on 42444946 (gate 1.5 cm); see fix-loop candidates |
 | G.3 | Repeatability 1 cm or 0.5%/wall | `bench/repeatability.py` | `bench/results/repeatability.md` | ⬜ |
-| G.4 | Drift handling + on/off ablation | `src/roomscope/core/drift.py`, `--drift/--no-drift`, `tests/test_lidar_real.py` | result.json `meta.drift_correction` | 🟡 plane residual 6.4→3.0 cm on 41069042; laser ablation pending |
+| G.4 | Drift handling + on/off ablation | `src/roomscope/core/drift.py`, `--drift/--no-drift`, `tests/test_lidar_real.py` | result.json `meta.drift_correction` | 🟡 plane residual 6.4→3.0 cm (41069042), 6.8→3.9 cm (42444946); vs laser: ceiling better on, walls mixed |
 | G.5 | Photo-tier whole-property stitch, ±8% footprint, calibrated | `bench/gates.py` | `bench/results/gates.md` | ⬜ |
 | G.6 | Photo ±8% / video ±3% walls; calibration at every tier | `bench/calibration.py` | `bench/results/calibration.md` | ⬜ |
 | 3.1 | Head-to-head vs Polycam on 2 rooms, ≥70% beat/tie | `bench/h2h.py` | `bench/results/h2h.md` + `benchmark/raw/polycam/` | ⬜ |
