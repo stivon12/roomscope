@@ -1,0 +1,47 @@
+{
+  "42444946": {
+    "held_out_scale": 0.98835,
+    "before": {
+      "ceiling_err_cm": -3.23,
+      "wall_plane_mae_cm": 0.91,
+      "wall_plane_median_cm": 0.88,
+      "wall_length_mae_cm": 1.28
+    },
+    "after": {
+      "ceiling_err_cm": 0.15,
+      "wall_plane_mae_cm": 1.62,
+      "wall_plane_median_cm": 1.49,
+      "wall_length_mae_cm": 1.8
+    }
+  },
+  "42444949": {
+    "held_out_scale": 0.98735,
+    "before": {
+      "ceiling_err_cm": -2.66,
+      "wall_plane_mae_cm": 5.4,
+      "wall_plane_median_cm": 3.62,
+      "wall_length_mae_cm": 9.63
+    },
+    "after": {
+      "ceiling_err_cm": 0.55,
+      "wall_plane_mae_cm": 3.49,
+      "wall_plane_median_cm": 1.24,
+      "wall_length_mae_cm": 9.01
+    }
+  },
+  "42444950": {
+    "held_out_scale": 0.988,
+    "before": {
+      "ceiling_err_cm": -3.82,
+      "wall_plane_mae_cm": 3.69,
+      "wall_plane_median_cm": 1.26,
+      "wall_length_mae_cm": 7.36
+    },
+    "after": {
+      "ceiling_err_cm": -0.76,
+      "wall_plane_mae_cm": 3.0,
+      "wall_plane_median_cm": 1.02,
+      "wall_length_mae_cm": 6.41
+    }
+  }
+}
