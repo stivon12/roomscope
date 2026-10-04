@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roomscope/schema/plan.schema.json",
+  "title": "RoomScope capture result",
+  "description": "One JSON per capture. Identical contract for photo, video and LiDAR tiers; only interval widths differ. All lengths in metres, areas in m^2, coordinates in a right-handed property frame (x east-ish, y north-ish, z up, floor at z=0).",
+  "type": "object",
+  "required": ["schema_version", "meta", "rooms", "adjacency", "footprint", "surfaces", "damage_regions", "concealed_flags", "scope_items", "warnings"],
+  "additionalProperties": false,
+  "$defs": {
+    "measurement": {
+      "description": "Every reported number carries a calibrated interval. lo <= value <= hi. level is the nominal coverage the interval was calibrated to.",
+      "type": "object",
+      "required": ["value", "lo", "hi", "unit", "level"],
+      "additionalProperties": false,
+      "properties": {
+        "value": {"type": "number"},
+        "lo": {"type": "number"},
+        "hi": {"type": "number"},
+        "unit": {"enum": ["m", "m2", "ft", "ft2", "count"]},
+        "level": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+        "method": {"type": "string", "description": "How the interval was derived, e.g. 'conformal:lidar:v1'"}
+      }
+    },
+    "point2": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+    "polygon2": {"type": "array", "items": {"$ref": "#/$defs/point2"}, "minItems": 3},
+    "wall": {
+      "type": "object",
+      "required": ["id", "start", "end", "length", "height"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string"},
+        "start": {"$ref": "#/$defs/point2"},
+        "end": {"$ref": "#/$defs/point2"},
+        "length": {"$ref": "#/$defs/measurement"},
+        "height": {"$ref": "#/$defs/measurement"},
+        "observed_fraction": {"type": "number", "minimum": 0, "maximum": 1, "description": "Fraction of the wall surface actually seen by sensors (rest is inferred)."}
+      }
+    },
+    "opening": {
+      "type": "object",
+      "required": ["id", "type", "wall_id", "width", "height", "offset"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string"},
+        "type": {"enum": ["door", "window", "opening"]},
+        "wall_id": {"type": "string"},
+        "width": {"$ref": "#/$defs/measurement"},
+        "height": {"$ref": "#/$defs/measurement"},
+        "sill": {"$ref": "#/$defs/measurement"},
+        "offset": {"$ref": "#/$defs/measurement", "description": "Distance from wall start to opening near edge."},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "room": {
+      "type": "object",
+      "required": ["id", "name", "polygon", "walls", "openings", "ceiling_height", "floor_area"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "polygon": {"$ref": "#/$defs/polygon2"},
+        "walls": {"type": "array", "items": {"$ref": "#/$defs/wall"}},
+        "openings": {"type": "array", "items": {"$ref": "#/$defs/opening"}},
+        "ceiling_height": {"$ref": "#/$defs/measurement"},
+        "floor_area": {"$ref": "#/$defs/measurement"},
+        "perimeter": {"$ref": "#/$defs/measurement"}
+      }
+    }
+  },
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "meta": {
+      "type": "object",
+      "required": ["capture_id", "tier", "pipeline_version", "models", "drift_correction", "runtime_s"],
+      "additionalProperties": true,
+      "properties": {
+        "capture_id": {"type": "string"},
+        "tier": {"enum": ["photo", "video", "lidar"]},
+        "device": {"type": "string"},
+        "os_version": {"type": "string"},
+        "pipeline_version": {"type": "string"},
+        "git_commit": {"type": "string"},
+        "models": {"type": "array", "items": {"type": "object", "required": ["name", "version", "license"], "properties": {"name": {"type": "string"}, "version": {"type": "string"}, "license": {"type": "string"}, "use": {"type": "string"}}}},
+        "drift_correction": {"type": "object", "required": ["enabled", "method"], "properties": {"enabled": {"type": "boolean"}, "method": {"type": "string"}, "residual_before_m": {"type": "number"}, "residual_after_m": {"type": "number"}}},
+        "runtime_s": {"type": "number"}
+      }
+    },
+    "rooms": {"type": "array", "items": {"$ref": "#/$defs/room"}, "minItems": 1},
+    "adjacency": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["room_a", "room_b", "via", "confidence"],
+        "additionalProperties": false,
+        "properties": {
+          "room_a": {"type": "string"},
+          "room_b": {"type": "string"},
+          "via": {"type": "string", "description": "Opening id shared by the two rooms, or 'wall' if adjacent without an opening."},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+        }
+      }
+    },
+    "footprint": {
+      "type": "object",
+      "required": ["area", "polygon", "stitch_status"],
+      "additionalProperties": false,
+      "properties": {
+        "area": {"$ref": "#/$defs/measurement"},
+        "polygon": {"$ref": "#/$defs/polygon2"},
+        "stitch_status": {"enum": ["single_room", "stitched", "partial", "abstained"]},
+        "max_room_overlap_m2": {"type": "number"}
+      }
+    },
+    "surfaces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "room_id", "kind", "area"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string"},
+          "room_id": {"type": "string"},
+          "kind": {"enum": ["wall", "floor", "ceiling"]},
+          "wall_id": {"type": "string"},
+          "area": {"$ref": "#/$defs/measurement"},
+          "observed_area": {"$ref": "#/$defs/measurement"}
+        }
+      }
+    },
+    "damage_regions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "surface_id", "class", "area", "confidence"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string"},
+          "surface_id": {"type": "string"},
+          "class": {"enum": ["water_stain", "mold", "crack", "hole", "peeling_paint", "other"]},
+          "area": {"$ref": "#/$defs/measurement"},
+          "extent": {"type": "object", "description": "Bounding extent on the surface plane (u along wall/x, v up/y), metres.", "properties": {"u_min": {"type": "number"}, "u_max": {"type": "number"}, "v_min": {"type": "number"}, "v_max": {"type": "number"}}},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "evidence": {"type": "object", "properties": {"frames": {"type": "array", "items": {"type": "string"}}, "rationale": {"type": "string"}, "classifier": {"type": "string"}}}
+        }
+      }
+    },
+    "concealed_flags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "surface_id", "rule_id", "rule", "inputs", "action"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string"},
+          "surface_id": {"type": "string"},
+          "rule_id": {"type": "string"},
+          "rule": {"type": "string"},
+          "inputs": {"type": "object"},
+          "action": {"type": "string"},
+          "citation": {"type": "string"}
+        }
+      }
+    },
+    "scope_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "surface_id", "code", "description", "unit", "quantity", "rule_id"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string"},
+          "surface_id": {"type": "string"},
+          "code": {"type": "string", "description": "Xactimate-like category+selector, e.g. 'DRY-1/2+'. Not the licensed Verisk price list."},
+          "description": {"type": "string"},
+          "unit": {"enum": ["SF", "LF", "EA", "SY", "DA"]},
+          "quantity": {"$ref": "#/$defs/measurement"},
+          "rule_id": {"type": "string"},
+          "triggered_by": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "warnings": {"type": "array", "items": {"type": "string"}}
+  }
+}
