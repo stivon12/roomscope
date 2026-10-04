@@ -24,11 +24,26 @@ import open3d as o3d
 from .laser import score_capture
 
 
+def _pose_at(traj: np.ndarray, t: float) -> np.ndarray | None:
+    """World->camera extrinsic at time t: slerp/lerp between the bracketing .traj samples (~10 Hz).
+    None outside the trajectory or across a gap > 0.25 s."""
+    from scipy.spatial.transform import Rotation, Slerp
+    j = int(np.searchsorted(traj[:, 0], t))
+    if j == 0 or j >= len(traj) or traj[j, 0] - traj[j - 1, 0] > 0.25:
+        return None
+    a, b = traj[j - 1], traj[j]
+    w = (t - a[0]) / (b[0] - a[0])
+    R = Slerp([0, 1], Rotation.from_rotvec([a[1:4], b[1:4]]))(w).as_matrix()
+    E = np.eye(4)
+    E[:3, :3], E[:3, 3] = R, (1 - w) * a[4:7] + w * b[4:7]
+    return E
+
+
 def _frame_cloud(f: Path, scene: Path, traj: np.ndarray, T_res: np.ndarray, stride: int = 8):
     vid, tstr = f.stem.rsplit("_", 1)
     t = float(tstr)
-    j = int(np.argmin(np.abs(traj[:, 0] - t)))
-    if abs(traj[j, 0] - t) > 0.005:
+    E = _pose_at(traj, t)
+    if E is None:
         return None
     pin = None
     for c in (tstr, f"{t - 0.001:.3f}", f"{t + 0.001:.3f}"):
@@ -46,10 +61,8 @@ def _frame_cloud(f: Path, scene: Path, traj: np.ndarray, T_res: np.ndarray, stri
     z = d[v, u]
     ok = (z > 0.2) & (z < 5.0)
     Pc = np.c_[((u[ok] + 0.5) - cx * sx) / (fx * sx) * z[ok], ((v[ok] + 0.5) - cy * sy) / (fy * sy) * z[ok], z[ok]]
-    E = np.eye(4)
-    E[:3, :3], E[:3, 3] = cv2.Rodrigues(traj[j, 1:4])[0], traj[j, 4:7]
     Tcw = np.linalg.inv(E)                       # camera(OpenCV) -> ARKit world
-    T = np.eye(4); T[:3, :3] = T_res
+    T = T_res if T_res.shape == (4, 4) else np.block([[T_res, np.zeros((3, 1))], [np.zeros((1, 3)), np.ones((1, 1))]])
     Tcw = T @ Tcw                                # -> result frame
     P = Pc @ Tcw[:3, :3].T + Tcw[:3, 3]
     return t, P, Tcw[:3, 3]
@@ -105,7 +118,7 @@ def run(scene: Path, out_dir: Path) -> str:
             med = np.median(dm[m], 0) * 100
             lines.append(f"    t={a:5.0f}-{b:4.0f}s n={m.sum():3d}  dx {med[0]:+5.1f}  dy {med[1]:+5.1f}  dz {med[2]:+5.1f}")
     # D2: similarity fit ARKit centres -> corrected centres (Umeyama)
-    X, Y = A[good, 9:12], A[good, 12:15]
+    X, Y = A[good, 8:11], A[good, 11:14]
     mx, my = X.mean(0), Y.mean(0)
     Xc, Yc = X - mx, Y - my
     U, S, Vt = np.linalg.svd(Yc.T @ Xc / len(X))

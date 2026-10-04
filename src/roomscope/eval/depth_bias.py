@@ -44,7 +44,9 @@ def _normals(z: np.ndarray, fx: float, fy: float, cx: float, cy: float) -> np.nd
 def collect(scene: Path) -> dict[str, np.ndarray]:
     """One row per usable lowres pixel: true depth, measured depth, confidence, incidence, radius, frame."""
     scene = Path(scene)
-    rows = {k: [] for k in ("gt", "meas", "conf", "inc", "rad", "frame")}
+    rows = {k: [] for k in ("gt", "meas", "conf", "inc", "rad", "frame", "vert")}
+    from .pose_drift import _pose_at
+    traj = np.loadtxt(scene / "lowres_wide.traj")
     files = sorted((scene / "highres_depth").glob("*.png"))
     for fi, f in enumerate(files):
         vid, tstr = f.stem.rsplit("_", 1)
@@ -72,7 +74,13 @@ def collect(scene: Path) -> dict[str, np.ndarray]:
         inc = np.degrees(np.arccos(np.clip(np.abs(np.sum(n * ray, -1)), 0, 1)))
         rad = np.hypot((u + 0.5 - cx) / (W / 2), (v + 0.5 - cy) / (H / 2))   # 0 centre .. ~1.4 corner
         ok = smooth & (lo > 0.1) & np.isfinite(inc) & (gt < 6.0)
-        for k, a in (("gt", gt), ("meas", lo), ("conf", cf), ("inc", inc), ("rad", rad)):
+        # surface orientation in the gravity-aligned ARKit world (y up): |n.y| -> 1 floor/ceiling, -> 0 wall
+        E = _pose_at(traj, float(tstr))
+        if E is None:
+            continue
+        ny = np.abs(n @ E[:3, :3][:, 1])              # world y-axis expressed in camera coords
+        vert = np.where(ny > 0.9, 0, np.where(ny < 0.2, 1, 2))   # 0 horizontal, 1 wall, 2 oblique
+        for k, a in (("gt", gt), ("meas", lo), ("conf", cf), ("inc", inc), ("rad", rad), ("vert", vert)):
             rows[k].append(a[ok])
         rows["frame"].append(np.full(int(ok.sum()), fi))
     return {k: np.concatenate(v) for k, v in rows.items()}
@@ -103,6 +111,11 @@ def report(scene: Path) -> dict:
     lines.append(_table("range m", d["gt"][hc], r, e, [0.3, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0]))
     lines.append(_table("incidence deg", d["inc"][hc], r, e, [0, 15, 30, 45, 60, 75, 90]))
     lines.append(_table("image radius", d["rad"][hc], r, e, [0, 0.25, 0.5, 0.75, 1.0, 1.5]))
+    lines.append("\nsurface: 0 = floor/ceiling, 1 = wall, 2 = oblique")
+    lines.append(_table("surface", d["vert"][hc].astype(float), r, e, [0, 1, 2, 3]))
+    for sv, nm in ((0, "floor/ceiling"), (1, "wall")):
+        ms = hc & (d["vert"] == sv)
+        lines.append(_table(f"{nm} range", d["gt"][ms], rel[ms], err[ms], [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0]))
     # robust linear model meas = a*gt + b on confidence-2 pixels with incidence < 60 deg
     m = hc & (d["inc"] < 60)
     g, y = d["gt"][m], d["meas"][m]
