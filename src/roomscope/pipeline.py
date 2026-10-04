@@ -62,7 +62,8 @@ def analyse(cap, corrs, warnings: list[str]):
             p, q = np.array(r["corners"][k]), np.array(r["corners"][(k + 1) % n])
             a, b = sorted((p[1 - e.axis], q[1 - e.axis]))
             sign = 1 if e.face[0] == "+" else -1
-            faces.append(L.Face(ri, k, e.axis, sign, e.c, a, b, r["ceil"][0]))
+            faces.append(L.Face(ri, k, e.axis, sign, e.c, a, b, r["ceil"][0],
+                                observed=e.plane is not None and e.plane.kind == "wall"))
     R = cloud.R
     grids = L.opening_evidence(cap, lambda i: R @ corrs[i], faces, [r["poly"] for r in rooms], floor)
     openings = L.detect_openings(grids, faces)

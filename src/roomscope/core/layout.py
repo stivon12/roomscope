@@ -644,6 +644,7 @@ class Face:
     a: float             # extent along the other axis (world coords, a < b)
     b: float
     height: float
+    observed: bool = True    # snapped to an observed wall plane (openings are only searched on these)
 
 
 @dataclass
@@ -660,7 +661,7 @@ class OpeningEst:
 
 
 def opening_evidence(cap, frame_corr, faces: list[Face], room_polys: list[Polygon], floor: HPlane,
-                     frame_step: int = 2, band: float = 0.04, beyond: float = 0.08):
+                     frame_step: int = 2, band: float = 0.04, beyond: float = 0.25):
     """Per face u-v grids: rays that end ON the wall (solid) vs rays that pass THROUGH it (open)."""
     grids = []
     for f in faces:
@@ -737,16 +738,26 @@ def _refine_edge(pts: np.ndarray, coarse: float, side: int, v0: float, v1: float
 
 
 def detect_openings(grids, faces: list[Face]) -> list[OpeningEst]:
+    """Openings need POSITIVE evidence: depth seen through the wall plane (>= 25 cm beyond it, set in
+    opening_evidence), outnumbering solid returns over most of the gap. A gap that is only occlusion or
+    no data has no through-points and is not an opening. Only faces snapped to an observed
+    wall are searched: on an inferred edge there is no wall to have an opening in."""
     out = []
     for G, f in zip(grids, faces):
+        if not f.observed:
+            continue
         S, T = G["solid"], G["thru"]
-        openm = ((T >= 2) & (T > 2 * S)).astype(np.uint8)
+        # glass returns some solid points too, so through-points need only outnumber them
+        openm = ((T >= 3) & (T > S)).astype(np.uint8)
         openm = cv2.morphologyEx(openm, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
         openm = cv2.morphologyEx(openm, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
         n, lab, stats, _ = cv2.connectedComponentsWithStats(openm, connectivity=4)
         for k in range(1, n):
             x, y, w, h, area = stats[k]
             if w * GRID < 0.35 or h * GRID < 0.3 or area < 0.6 * w * h * 0.5:
+                continue
+            # positive evidence over most of the gap, not a few stray rays
+            if (T[y:y + h, x:x + w] >= 3).mean() < 0.4:
                 continue
             u0c, u1c = f.a + x * GRID, f.a + (x + w) * GRID
             v0c, v1c = y * GRID, (y + h) * GRID
