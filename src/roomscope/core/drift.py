@@ -84,7 +84,8 @@ class DriftResult:
     method: str = "plane-anchored fragment alignment + robust joint LSQ (Manhattan yaw, wall/floor planes)"
 
 
-def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2) -> DriftResult:
+def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragment_yaw: bool = True,
+                  match_dist: float = MATCH_DIST, prior_sigma: float | None = None) -> DriftResult:
     F = len(cap.poses)
     ts = cap.timestamps - cap.timestamps[0]
     frag_id = np.floor(ts / frag_seconds).astype(int)
@@ -109,7 +110,7 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2) -> DriftR
             Ps.append(P); Ns.append(N); cs.append(c)
         P, N = np.concatenate(Ps), np.concatenate(Ns)
         pivot[k] = np.mean(cs, axis=0)
-        if (np.abs(N[:, 2]) < 0.3).sum() > 500:
+        if per_fragment_yaw and (np.abs(N[:, 2]) < 0.3).sum() > 500:
             theta[k] = -manhattan_yaw(N)
         frag_pts[k] = (P, N)
 
@@ -156,7 +157,7 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2) -> DriftR
         matches = []
         for oi in ois:
             o = obs[oi]
-            best, bd = None, MATCH_DIST
+            best, bd = None, match_dist
             for mi, g in enumerate(gmap):
                 if g["face"] != o.face:
                     continue
@@ -179,7 +180,7 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2) -> DriftR
         for oi, mi in matches:
             o = obs[oi]
             # re-check association with the updated translation; unmatched planes extend the map
-            if mi is not None and abs(o.offset + t[k, o.axis] - gmap[mi]["g"]) < MATCH_DIST:
+            if mi is not None and abs(o.offset + t[k, o.axis] - gmap[mi]["g"]) < match_dist:
                 g = gmap[mi]
                 g["g"] = (g["g"] * g["wsum"] + (o.offset + t[k, o.axis]) * o.w) / (g["wsum"] + o.w)
                 g["wsum"] += o.w
@@ -200,6 +201,9 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2) -> DriftR
         return tt, x[3 * (K - 1):]
 
     wmax = max(o.w for o in obs) if obs else 1.0
+    frag_w = np.zeros(K)
+    for oi, _ in assoc:
+        frag_w[obs[oi].frag] += obs[oi].w / wmax
 
     def resid(x):
         tt, g = unpack(x)
@@ -208,6 +212,10 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2) -> DriftR
         r += [np.sqrt(fw[k]) * (floor_z[k] + tt[k, 2] - floor_ref) for k in range(K) if not np.isnan(floor_z[k])]
         # weak smoothness prior: drift is slow, so neighbouring fragments should not jump
         r += list(0.05 * (tt[1:] - tt[:-1]).ravel())
+        if prior_sigma is not None:
+            # trust the odometry: a fragment moves only when its planes disagree by clearly more than
+            # ARKit's typical drift (prior_sigma); the prior weighs as much as the fragment's own planes
+            r += list((np.sqrt(frag_w[1:])[:, None] * tt[1:] * (0.02 / prior_sigma)).ravel())
         return np.asarray(r)
 
     x0 = np.concatenate([t[1:].ravel(), np.array([g["g"] for g in gmap])])

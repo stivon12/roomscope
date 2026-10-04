@@ -133,19 +133,27 @@ class HPlane:
         return self.a * x + self.b * y + self.c
 
 
-def pick_level(P: np.ndarray, side: str, min_frac: float = 0.03, min_extent_m2: float = 1.0) -> float:
+def pick_level(P: np.ndarray, side: str, min_frac: float = 0.03, min_extent_m2: float = 1.0,
+                cluster: float = 0.15) -> float:
     """Height of the floor (side='low') or ceiling (side='high') among horizontal-surface points.
 
-    Not the most populated level: in furnished rooms bed and table tops often out-number visible floor.
-    The floor is the LOWEST level, and the ceiling the HIGHEST, that has real mass (>= min_frac of the
-    points within +-3 cm) and real horizontal extent (occupies >= min_extent_m2 at 10 cm cells)."""
+    Not simply the most populated level: in furnished rooms bed and table tops often out-number visible
+    floor. So first find the LOWEST level (floor) or HIGHEST level (ceiling) with real mass (>= min_frac
+    of the points within +-3 cm) and real horizontal extent (>= min_extent_m2 at 10 cm cells). Then,
+    among qualifying levels within `cluster` of it, take the best supported one. Odometry height drift
+    leaves a thin phantom copy of the floor or ceiling a few cm off: on 42444946 without drift
+    correction, a ceiling layer 8 cm above the real one held 15% of the points, and "highest" picked it
+    (+6.6 cm). Furniture tops sit >= 40 cm from the floor, so the 15 cm cluster does not reach them."""
     z = P[:, 2]
     edges = np.arange(z.min() - 0.02, z.max() + 0.03, 0.01)
     h, _ = np.histogram(z, edges)
     hs = gaussian_filter1d(h.astype(float), 1.0)
     order = range(len(hs)) if side == "low" else range(len(hs) - 1, -1, -1)
+    cands = []                                  # (level, band count), from the extreme inward
     for i in order:
         lvl = edges[i] + 0.005
+        if cands and abs(lvl - cands[0][0]) > cluster:
+            break
         band = np.abs(z - lvl) < 0.03
         if band.sum() < max(100, min_frac * len(z)):
             continue
@@ -153,7 +161,9 @@ def pick_level(P: np.ndarray, side: str, min_frac: float = 0.03, min_extent_m2: 
             continue
         cells = np.unique(np.floor(P[band, :2] / 0.1).astype(np.int64), axis=0)
         if len(cells) * 0.01 >= min_extent_m2:
-            return float(lvl)
+            cands.append((float(lvl), int(band.sum())))
+    if cands:
+        return max(cands, key=lambda c: c[1])[0]
     return float(edges[np.argmax(hs)] + 0.005)
 
 
@@ -322,7 +332,38 @@ def fit_wall_planes(cloud: Cloud, floor: HPlane, ceil_z: float, bridge: float = 
                     continue
                 kind = "builtin"
             planes.append(WallPlane(face, axis, sign, off, float(np.std(x[sel] - off)), int(sel.sum()), segs, top, kind))
-    return planes
+    return drop_layered(planes, ceil_z)
+
+
+def _overlap(a: list[tuple[float, float]], b: list[tuple[float, float]]) -> float:
+    return sum(max(0.0, min(h1, h2) - max(l1, l2)) for l1, h1 in a for l2, h2 in b)
+
+
+def drop_layered(planes: list[WallPlane], ceil_z: float, max_gap: float = 0.6, cover: float = 0.6,
+                 max_std: float = 0.045, top_margin: float = 0.4) -> list[WallPlane]:
+    """Remove surfaces standing in front of a wall: a wardrobe face, a curtain, a radiator panel.
+
+    A plane is dropped when another plane facing the same way lies BEHIND it (further from the room,
+    within max_gap), covers >= `cover` of its extent, and is wall-like: observed to within top_margin
+    of the ceiling, and flat (residual std <= max_std; curtain folds give 7-9 cm). Found on 42444946:
+    - a 1.95 m wardrobe 17 cm in front of the wall;
+    - a curtain 17 cm in front of a window wall.
+    Both had been taken as the wall. A wall jog or alcove is unaffected: there the rear plane runs
+    beside the front one rather than behind it, so coverage is low."""
+    def wall_like(p: WallPlane) -> bool:
+        return p.top >= ceil_z - top_margin and p.std <= max_std
+
+    drop = set()
+    for i, p in enumerate(planes):
+        ext = sum(h - l for l, h in p.segments)
+        for j, q in enumerate(planes):
+            if i == j or q.face != p.face or not wall_like(q):
+                continue
+            behind = (p.offset - q.offset) * p.sign      # face '+x': room at larger x, so behind = smaller x
+            if 0.03 < behind <= max_gap and _overlap(p.segments, q.segments) >= cover * ext:
+                drop.add(i)
+                break
+    return [p for i, p in enumerate(planes) if i not in drop]
 
 
 # ---------------------------------------------------------------------------------------------------

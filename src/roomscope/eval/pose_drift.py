@@ -39,7 +39,8 @@ def _pose_at(traj: np.ndarray, t: float) -> np.ndarray | None:
     return E
 
 
-def _frame_cloud(f: Path, scene: Path, traj: np.ndarray, T_res: np.ndarray, stride: int = 8):
+def _frame_cloud(f: Path, scene: Path, traj: np.ndarray, T_res: np.ndarray, stride: int = 8,
+                 corr_fn=None, G: np.ndarray | None = None):
     vid, tstr = f.stem.rsplit("_", 1)
     t = float(tstr)
     E = _pose_at(traj, t)
@@ -63,22 +64,29 @@ def _frame_cloud(f: Path, scene: Path, traj: np.ndarray, T_res: np.ndarray, stri
     Pc = np.c_[((u[ok] + 0.5) - cx * sx) / (fx * sx) * z[ok], ((v[ok] + 0.5) - cy * sy) / (fy * sy) * z[ok], z[ok]]
     Tcw = np.linalg.inv(E)                       # camera(OpenCV) -> ARKit world
     T = T_res if T_res.shape == (4, 4) else np.block([[T_res, np.zeros((3, 1))], [np.zeros((1, 3)), np.ones((1, 1))]])
-    Tcw = T @ Tcw                                # -> result frame
+    if corr_fn is not None:                      # world correction (e.g. drift) lives in the gravity frame G
+        Tcw = T @ np.linalg.inv(G) @ corr_fn(t) @ G @ Tcw
+    else:
+        Tcw = T @ Tcw                            # -> result frame
     P = Pc @ Tcw[:3, :3].T + Tcw[:3, 3]
     return t, P, Tcw[:3, 3]
 
 
-def run(scene: Path, out_dir: Path) -> str:
-    scene, out_dir = Path(scene), Path(out_dir)
+def laser_in_result(scene: Path, out_dir: Path):
     sc, ref = score_capture(out_dir, scene, return_ref=True)   # laser registered into result frame
-    T_res = np.load(out_dir / "cloud.npz")["T_world_to_result"]
-    traj = np.loadtxt(scene / "lowres_wide.traj")
     ref = ref.voxel_down_sample(0.02)
     if not ref.has_normals():
         ref.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=0.06, max_nn=30))
+    return ref, np.load(out_dir / "cloud.npz")["T_world_to_result"]
+
+
+def frame_errors(scene: Path, ref, T_res: np.ndarray, corr_fn=None, G: np.ndarray | None = None,
+                 step: int = 1) -> np.ndarray:
+    """Rows (t, dx, dy, dz, rot_deg, fitness, rmse, min_eig, c(3), c_corr(3)) per highres frame."""
+    traj = np.loadtxt(Path(scene) / "lowres_wide.traj")
     rows = []
-    for f in sorted((scene / "highres_depth").glob("*.png")):
-        fc = _frame_cloud(f, scene, traj, T_res)
+    for f in sorted((Path(scene) / "highres_depth").glob("*.png"))[::step]:
+        fc = _frame_cloud(f, Path(scene), traj, T_res, corr_fn=corr_fn, G=G)
         if fc is None:
             continue
         t, P, c = fc
@@ -97,7 +105,21 @@ def run(scene: Path, out_dir: Path) -> str:
         ang = np.degrees(np.arccos(np.clip((np.trace(dT[:3, :3]) - 1) / 2, -1, 1)))
         c_corr = dT[:3, :3] @ c + dT[:3, 3]
         rows.append((t, *(c_corr - c), ang, reg.fitness, reg.inlier_rmse, ev[0], *c, *c_corr))
-    A = np.array(rows)
+    return np.array(rows)
+
+
+def summarise_errors(A: np.ndarray, good: np.ndarray) -> dict:
+    d = A[good, 1:4]
+    dm = d - np.median(d, 0)
+    mag = np.linalg.norm(dm, axis=1)
+    return {"median_cm": float(np.median(mag) * 100), "p90_cm": float(np.percentile(mag, 90) * 100),
+            "max_cm": float(mag.max() * 100), "rot_median_deg": float(np.median(A[good, 4]))}
+
+
+def run(scene: Path, out_dir: Path) -> str:
+    scene, out_dir = Path(scene), Path(out_dir)
+    ref, T_res = laser_in_result(scene, out_dir)
+    A = frame_errors(scene, ref, T_res)
     good = (A[:, 5] > 0.6) & (A[:, 7] > 0.05)
     t0 = A[0, 0]
     lines = [f"scene {scene.name}: {len(A)} highres frames, {good.sum()} well-constrained (fitness>0.6, all 3 "
