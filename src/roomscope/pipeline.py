@@ -35,7 +35,10 @@ def _name_room(poly: Polygon, k: int) -> str:
 
 def analyse(cap, corrs, warnings: list[str], single_room: bool = False):
     """Shared geometry core on posed frames. Returns plain-python room/opening structures."""
-    cloud = L.fuse(cap, corrs)
+    # every view counts when there are few (photos: 2-8, video keyframes: ~32); only dense LiDAR streams
+    # (hundreds of frames at 10+ Hz, consecutive frames nearly identical) are thinned
+    step = 1 if len(cap.poses) <= 100 else 2
+    cloud = L.fuse(cap, corrs, frame_step=step)
     fp = cloud.P[cloud.cls == "floor"]
     floor = L.fit_hplane(fp, z0=L.pick_level(fp, "low"))
     cp = cloud.P[cloud.cls == "ceil"]
@@ -69,7 +72,8 @@ def analyse(cap, corrs, warnings: list[str], single_room: bool = False):
             faces.append(L.Face(ri, k, e.axis, sign, e.c, a, b, r["ceil"][0],
                                 observed=e.plane is not None and e.plane.kind == "wall"))
     R = cloud.R
-    grids = L.opening_evidence(cap, lambda i: R @ corrs[i], faces, [r["poly"] for r in rooms], floor)
+    grids = L.opening_evidence(cap, lambda i: R @ corrs[i], faces, [r["poly"] for r in rooms], floor,
+                               frame_step=step)
     openings = L.detect_openings(grids, faces)
     return rooms, faces, grids, openings, cloud
 
@@ -241,6 +245,7 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, loa
             load_kw["depth_affine"] = None if ds.scale == 1.0 else (ds.scale, 0.0)
             ds_meta = ds.to_json()
         cap = load_any(capture, **load_kw)
+        warnings += getattr(cap, "load_warnings", [])
         body, cloud, drift_meta = _geometry(cap, drift, warnings)
         clouds.append((cloud, cap.align, "cloud.npz"))
     elif tier == "video":
