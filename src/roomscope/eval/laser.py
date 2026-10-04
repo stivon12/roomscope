@@ -419,7 +419,7 @@ def summarise(sc: dict) -> str:
             f"planes   {stat(sc['wall_planes'], 'offset_err')}")
 
 
-def score_capture(out_dir: Path, scene_root: Path) -> dict:
+def score_capture(out_dir: Path, scene_root: Path, return_ref: bool = False):
     """Score pipeline output in out_dir (result.json + cloud.npz) against the scene's laser reference."""
     import json
 
@@ -448,7 +448,7 @@ def score_capture(out_dir: Path, scene_root: Path) -> dict:
     sc = score_result(result, ref)
     sc.update({"reference": source, "icp_fitness": fit, "n_ref_planes": len(sc["wall_planes"]),
                "drift": result["meta"]["drift_correction"]})
-    return sc
+    return (sc, ref) if return_ref else sc
 
 
 if __name__ == "__main__":

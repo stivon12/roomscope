@@ -180,7 +180,7 @@ def assemble(rooms, faces, grids, openings, warnings) -> dict:
     return {"rooms": out_rooms, "adjacency": adjacency, "footprint": footprint, "surfaces": surfaces}
 
 
-def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True) -> Path:
+def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, load_kw: dict | None = None) -> Path:
     t0 = time.time()
     capture = Path(capture)
     warnings: list[str] = []
@@ -189,7 +189,7 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True) -> 
     from .core import drift as D
     from .frontends.lidar import load_any
 
-    cap = load_any(capture)
+    cap = load_any(capture, **(load_kw or {}))
     if drift:
         dr = D.correct_drift(cap)
         corrs = dr.corrections

@@ -186,7 +186,9 @@ def _gravity_align(poses: np.ndarray, pts: list[np.ndarray], nrms: list[np.ndarr
 
 
 def load_arkitscenes(path: Path, pixel_stride: int = 3, frame_stride: int = 1, min_conf: int = 2,
-                     max_depth: float = 5.0) -> LidarCapture:
+                     max_depth: float = 5.0, depth_affine: tuple[float, float] | None = None) -> LidarCapture:
+    """depth_affine=(a, b): measured = a * true + b (from eval/depth_bias.py); inverted per pixel.
+    None (default) uses depth as recorded."""
     root = _arkitscenes_root(path)
     traj = np.loadtxt(root / "lowres_wide.traj")
     traj_ts = traj[:, 0]
@@ -209,6 +211,8 @@ def load_arkitscenes(path: Path, pixel_stride: int = 3, frame_stride: int = 1, m
             continue
         w, h, fx, fy, cx, cy = np.loadtxt(pin)
         depth = cv2.imread(str(f), cv2.IMREAD_UNCHANGED).astype(np.float32) / 1000.0
+        if depth_affine is not None:
+            depth = np.where(depth > 0, (depth - depth_affine[1]) / depth_affine[0], 0).astype(np.float32)
         conf = cv2.imread(str(cpath), cv2.IMREAD_UNCHANGED)
         # intrinsics are for lowres_wide (same 256x192 grid as lowres_depth); rescale defensively
         sx, sy = depth.shape[1] / w, depth.shape[0] / h
