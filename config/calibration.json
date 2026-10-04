@@ -53,6 +53,61 @@
       "raw_coverage": 0.3137254901960784,
       "abs_err_median": 0.04781330693261099,
       "width_to_error": 4.126340354738685
+    },
+    "wall_length:supported": {
+      "q": 8.62968418756176,
+      "level": 0.9,
+      "nominal_level": 0.93,
+      "method": "room-pooled",
+      "n": 31,
+      "n_rooms": 7,
+      "loro_coverage": 0.9354838709677419,
+      "loro_coverage_ci95": [
+        0.7857838428365977,
+        0.9920890165381453
+      ],
+      "loro_median_halfwidth": 0.1573592512216687,
+      "loro_interval_score": 0.4866307923757629,
+      "loro_infinite_folds": 0,
+      "loro_per_room": {
+        "421337": 1.0,
+        "422813": 1.0,
+        "422829": 0.75,
+        "422851": 1.0,
+        "423448": 1.0,
+        "434641": 0.833,
+        "434650": 1.0
+      },
+      "raw_coverage": 0.3225806451612903,
+      "abs_err_median": 0.014045612768888827,
+      "width_to_error": 11.203445076474058
+    },
+    "wall_length:inferred": {
+      "q": 4.044265890208073,
+      "level": 0.9,
+      "nominal_level": 0.93,
+      "method": "room-pooled",
+      "n": 20,
+      "n_rooms": 6,
+      "loro_coverage": 0.95,
+      "loro_coverage_ci95": [
+        0.7512672372279723,
+        0.9987349105020502
+      ],
+      "loro_median_halfwidth": 0.20913193764197477,
+      "loro_interval_score": 0.46375402140587374,
+      "loro_infinite_folds": 0,
+      "loro_per_room": {
+        "421337": 1.0,
+        "422813": 1.0,
+        "422829": 1.0,
+        "422851": 0.5,
+        "434641": 1.0,
+        "434650": 1.0
+      },
+      "raw_coverage": 0.3,
+      "abs_err_median": 0.1370998093124678,
+      "width_to_error": 1.5253991868459615
     }
   }
 }

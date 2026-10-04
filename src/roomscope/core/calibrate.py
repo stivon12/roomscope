@@ -134,8 +134,13 @@ def fit(records: list[dict], level: float = 0.9) -> dict:
         TR = [r for r in records if r["tier"] == tier]
         W = [r for r in TR if r["kind"] == "wall_length"]
         sW, rW = _scores(W), np.array([r["room"] for r in W])
-        for kind in sorted({r["kind"] for r in TR}):
-            R = [r for r in TR if r["kind"] == kind]
+        kinds = sorted({r["kind"] for r in TR})
+        kinds += [f"wall_length:{b}" for b in ("supported", "inferred") if any(r.get("bin") == b for r in W)]
+        for kind in kinds:
+            if kind.startswith("wall_length:"):     # Mondrian bin: its own room-pooled quantile
+                R = [r for r in W if r.get("bin") == kind.split(":")[1]]
+            else:
+                R = [r for r in TR if r["kind"] == kind]
             s, rooms = _scores(R), np.array([r["room"] for r in R])
             # fallbacks, each labelled: drop the PAC margin; then the highest level n allows; only then
             # pool with wall lengths (valid, but the wall tail makes such intervals far too wide)
@@ -166,6 +171,17 @@ def fit(records: list[dict], level: float = 0.9) -> dict:
     return out
 
 
+SUPPORT_MIN = 0.30     # both neighbouring walls observed over >= 30 % of their length -> "supported"
+
+
+def corner_bin(walls: list[dict], k: int) -> str:
+    """Wall k's length is the distance between walls k-1 and k+1, so its reliability is set by them
+    (fix/DECLARATION.md, fix 2: error vs min neighbour observed fraction, Spearman -0.53)."""
+    n = len(walls)
+    nb = [walls[(k - 1) % n].get("observed_fraction", 1.0), walls[(k + 1) % n].get("observed_fraction", 1.0)]
+    return "supported" if min(nb) >= SUPPORT_MIN else "inferred"
+
+
 def load() -> dict:
     return json.loads(CONFIG.read_text()) if CONFIG.exists() else {}
 
@@ -194,9 +210,17 @@ def apply(result: dict, tier: str, cfg: dict | None = None) -> dict:
                 w["height"] = dict(room["ceiling_height"])
         if L and math.isfinite(L["q"]):
             ratios = []
-            for w in room["walls"]:
+            for k, w in enumerate(room["walls"]):
                 raw = w["length"]["hi"] - w["length"]["value"]
-                _recal(w["length"], L["q"], f"conformal:{tier}:wall_length:v1", L["level"])
+                b = corner_bin(room["walls"], k)
+                Lb = c.get(f"wall_length:{b}")
+                if Lb and math.isfinite(Lb["q"]):
+                    tag = f"conformal-mondrian:{tier}:wall_length:{b}:v2"
+                    if b == "inferred":
+                        tag += " (a neighbouring wall is <30% observed: position inferred)"
+                    _recal(w["length"], Lb["q"], tag, Lb["level"])
+                else:
+                    _recal(w["length"], L["q"], f"conformal:{tier}:wall_length:v1", L["level"])
                 ratios.append((w["length"]["hi"] - w["length"]["value"]) / max(raw, 1e-9))
             k = float(np.median(ratios)) if ratios else 1.0
             for key in ("floor_area", "perimeter"):

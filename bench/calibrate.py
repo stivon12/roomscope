@@ -24,6 +24,23 @@ from roomscope.eval.laser import find_laser_dir, score_capture
 from roomscope.pipeline import run_capture
 
 
+def wall_bin(res: dict, wall_id: str) -> str:
+    for rm in res["rooms"]:
+        ids = [w["id"] for w in rm["walls"]]
+        if wall_id in ids:
+            return C.corner_bin(rm["walls"], ids.index(wall_id))
+    return "supported"
+
+
+def add_bins(recs: list[dict], tier: str) -> list[dict]:
+    """Bins for records saved before bins existed (computed from the cached result.json)."""
+    for r in recs:
+        if r["kind"] == "wall_length" and "bin" not in r:
+            res = json.loads((Path("out/calib") / tier / r["capture"] / "result.json").read_text())
+            r["bin"] = wall_bin(res, r["id"])
+    return recs
+
+
 def collect(tier: str, rerun: bool) -> list[dict]:
     cfg = yaml.safe_load(Path("bench/scenes.yaml").read_text())
     root = Path(cfg["root"])
@@ -52,7 +69,8 @@ def collect(tier: str, rerun: bool) -> list[dict]:
         for w in sc["walls"]:
             m = walls[w["wall"]]["length"]
             recs.append({"tier": tier, "kind": "wall_length", "room": c["room"], "capture": c["id"], "id": w["wall"],
-                         "value": m["value"], "truth": w["ref"], "raw_half": m["hi"] - m["value"]})
+                         "value": m["value"], "truth": w["ref"], "raw_half": m["hi"] - m["value"],
+                         "bin": wall_bin(res, w["wall"])})
         for h in sc["ceil"]:
             m = rooms[h["room"]]["ceiling_height"]
             recs.append({"tier": tier, "kind": "ceiling_height", "room": c["room"], "capture": c["id"], "id": h["room"],
@@ -70,7 +88,7 @@ def main():
     a = ap.parse_args()
     rec_p = Path(f"out/calib/records_{a.tier}.json")
     if a.from_records:
-        recs = json.loads(rec_p.read_text())
+        recs = add_bins(json.loads(rec_p.read_text()), a.tier)
     else:
         recs = collect(a.tier, a.rerun)
         Path("out/calib").mkdir(parents=True, exist_ok=True)

@@ -77,3 +77,19 @@ bin is computed from the result itself at run time, and inferred walls are label
 - mean interval score over all walls: **<= 50 cm** (from 65.2).
 Uncertainty: the supported bin still contains ~19 % of walls above 8 cm, so its 90 % quantile cannot
 be small; this fix makes the intervals adaptive, it does not make the geometry more accurate.
+
+**Outcome (commit tagged `fix2-after`; regenerate: `python bench/calibrate.py --tier lidar --from-records`).**
+
+| | predicted | measured (LORO, 51 walls / 7 rooms) |
+|---|---|---|
+| supported bin median half-width | 10-15 cm | **15.7 cm** (19.7 before): **missed by 0.7 cm** |
+| supported bin coverage | >= 0.85 | 0.94 [0.79-0.99]: met |
+| inferred bin median half-width | 20-30 cm | 20.9 cm: met |
+| inferred bin coverage | >= 0.85 | 0.95 [0.75-1.00]: met |
+| mean interval score | <= 50 cm | **47.8 cm** (65.2 before): met |
+
+Why the supported bin stayed wide: 6 of its 31 walls are still > 8 cm off, and because its walls have
+small raw uncertainties their normalised scores are larger, so its quantile q rose (7.05 -> 8.63)
+even though its median error is 1.4 cm. The prediction anticipated the tail but underestimated it.
+Next lever, not part of this fix: find what those 6 walls share (the corner research's "wrong layer"
+case: a neighbour fitted to a front surface while the dominant laser surface lies behind it).
