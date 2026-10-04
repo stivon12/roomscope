@@ -180,27 +180,9 @@ def assemble(rooms, faces, grids, openings, warnings) -> dict:
     return {"rooms": out_rooms, "adjacency": adjacency, "footprint": footprint, "surfaces": surfaces}
 
 
-def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, load_kw: dict | None = None,
-                depth_scale: float | None = None, depth_correction: bool = True, device: str | None = None,
-                calibrate: bool = True) -> Path:
-    t0 = time.time()
-    capture = Path(capture)
-    warnings: list[str] = []
-    if tier != "lidar":
-        raise NotImplementedError(f"{tier} tier front-end not implemented yet")
+def _geometry(cap, drift: bool, warnings: list[str]):
+    """Shared core on one posed capture: drift correction (or the ablation), layout, assembly."""
     from .core import drift as D
-    from .frontends.lidar import load_any
-
-    from .core.depth_calib import resolve_depth_scale
-    load_kw = dict(load_kw or {})
-    if "depth_affine" in load_kw:              # diagnostics pass an explicit model
-        a, b = load_kw["depth_affine"]
-        ds_meta = {"enabled": True, "scale": a, "offset_m": b, "se": 0.0, "source": "explicit depth_affine"}
-    else:
-        ds = resolve_depth_scale(device, depth_scale, depth_correction)
-        load_kw["depth_affine"] = None if ds.scale == 1.0 else (ds.scale, 0.0)
-        ds_meta = ds.to_json()
-    cap = load_any(capture, **load_kw)
     if drift:
         dr = D.correct_drift(cap)
         corrs = dr.corrections
@@ -210,12 +192,101 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, loa
         corrs = D.identity(cap)
         drift_meta = {"enabled": False, "method": "none (ablation: odometry poses used as-is)"}
     rooms, faces, grids, openings, cloud = analyse(cap, corrs, warnings)
-    body = assemble(rooms, faces, grids, openings, warnings)
+    return assemble(rooms, faces, grids, openings, warnings), cloud, drift_meta
+
+
+def _rename_room(obj, old: str, new: str):
+    """Recursively rename a room id inside its JSON (R1 -> R3, R1-W2 -> R3-W2, S-R1-floor -> S-R3-floor)."""
+    if isinstance(obj, dict):
+        return {k: _rename_room(v, old, new) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_rename_room(v, old, new) for v in obj]
+    if isinstance(obj, str):
+        if obj == old:
+            return new
+        for pre in (old + "-", "S-" + old + "-"):
+            if obj.startswith(pre):
+                return obj.replace(old, new, 1)
+    return obj
+
+
+def _save_cloud(out: Path, cloud, align, name: str = "cloud.npz"):
+    keep = np.unique(np.floor(cloud.P / 0.05).astype(np.int64), axis=0, return_index=True)[1]
+    np.savez_compressed(out / name, P=cloud.P[keep].astype(np.float32), N=cloud.N[keep].astype(np.float32),
+                        T_world_to_result=cloud.R @ align)
+
+
+def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, load_kw: dict | None = None,
+                depth_scale: float | None = None, depth_correction: bool = True, device: str | None = None,
+                calibrate: bool = True, n_frames: int = 32) -> Path:
+    t0 = time.time()
+    capture = Path(capture)
+    out = Path(out_dir) / capture.name
+    out.mkdir(parents=True, exist_ok=True)
+    warnings: list[str] = []
+    models: list[dict] = []
+    ds_meta = {"enabled": False, "source": f"not applicable to the {tier} tier"}
+    clouds = []                                  # (cloud, align, filename)
+
+    if tier == "lidar":
+        from .core.depth_calib import resolve_depth_scale
+        from .frontends.lidar import load_any
+        load_kw = dict(load_kw or {})
+        if "depth_affine" in load_kw:              # diagnostics pass an explicit model
+            a, b = load_kw["depth_affine"]
+            ds_meta = {"enabled": True, "scale": a, "offset_m": b, "se": 0.0, "source": "explicit depth_affine"}
+        else:
+            ds = resolve_depth_scale(device, depth_scale, depth_correction)
+            load_kw["depth_affine"] = None if ds.scale == 1.0 else (ds.scale, 0.0)
+            ds_meta = ds.to_json()
+        cap = load_any(capture, **load_kw)
+        body, cloud, drift_meta = _geometry(cap, drift, warnings)
+        clouds.append((cloud, cap.align, "cloud.npz"))
+    elif tier == "video":
+        from .frontends.recon import MODEL_INFO
+        from .frontends.video import load_video
+        cap = load_video(capture, out, n_frames=n_frames)
+        models.append(MODEL_INFO)
+        body, cloud, drift_meta = _geometry(cap, drift, warnings)
+        clouds.append((cloud, cap.align, "cloud.npz"))
+    elif tier == "photo":
+        from .core import stitch as St
+        from .frontends.photo import load_room, room_folders
+        from .frontends.recon import MODEL_INFO
+        models.append(MODEL_INFO)
+        drift_meta = {"enabled": False, "method": "not applicable: photos have no trajectory to drift"}
+        per_room = []
+        for k, folder in enumerate(room_folders(capture)):
+            w: list[str] = []
+            cap = load_room(folder)
+            b, cloud, _ = _geometry(cap, False, w)
+            if not b["rooms"]:
+                warnings.append(f"{folder.name}: no room could be reconstructed from its photos")
+                continue
+            main = max(b["rooms"], key=lambda r: r["floor_area"]["value"])
+            if len(b["rooms"]) > 1:
+                w.append(f"{folder.name}: {len(b['rooms'])} floor regions found, kept the largest")
+            rid = f"R{len(per_room) + 1}"
+            room = _rename_room(main, main["id"], rid)
+            room["name"] = folder.name
+            surf = [_rename_room(s, main["id"], rid) for s in b["surfaces"] if s["room_id"] == main["id"]]
+            per_room.append((room, surf))
+            warnings += [_rename_room(x, main["id"], rid) for x in w]
+            clouds.append((cloud, cap.align, "cloud.npz" if k == 0 else f"cloud_{rid}.npz"))
+        if not per_room:
+            raise RuntimeError(f"no room reconstructed from {capture}")
+        placed, adjacency, status, sw = St.stitch([r for r, _ in per_room])
+        warnings += sw
+        body = {"rooms": placed, "adjacency": adjacency, "footprint": St.footprint(placed, status),
+                "surfaces": [s for _, ss in per_room for s in ss]}
+    else:
+        raise ValueError(f"unknown tier {tier}")
+
     result = {
         "schema_version": "1.0",
         "meta": {
             "capture_id": capture.name, "tier": tier, "device": device or "unknown", "os_version": "unknown",
-            "pipeline_version": __version__, "git_commit": _git_commit(), "models": [],
+            "pipeline_version": __version__, "git_commit": _git_commit(), "models": models,
             "drift_correction": drift_meta, "depth_correction": ds_meta, "runtime_s": round(time.time() - t0, 2),
         },
         **body,
@@ -226,13 +297,9 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, loa
         from .core import calibrate as Cal
         result = Cal.apply(result, tier)
         result["warnings"] = sorted(set(result["warnings"]))
-    out = Path(out_dir) / capture.name
-    out.mkdir(parents=True, exist_ok=True)
     (out / "result.json").write_text(json.dumps(result, indent=2))
-    # fused cloud in the result frame (5 cm), for registration against ground truth and for the report
-    keep = np.unique(np.floor(cloud.P / 0.05).astype(np.int64), axis=0, return_index=True)[1]
-    np.savez_compressed(out / "cloud.npz", P=cloud.P[keep].astype(np.float32), N=cloud.N[keep].astype(np.float32),
-                        T_world_to_result=cloud.R @ cap.align)
+    for cloud, align, name in clouds:            # fused clouds in the result frame (5 cm), for GT scoring
+        _save_cloud(out, cloud, align, name)
     from .render import render_plan
     render_plan(result, out / "plan.png")
     return out / "result.json"

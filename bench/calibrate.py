@@ -13,7 +13,11 @@ import argparse
 import json
 from pathlib import Path
 
+import sys
+
 import yaml
+
+sys.path.insert(0, str(Path(__file__).parent))
 
 from roomscope.core import calibrate as C
 from roomscope.eval.laser import find_laser_dir, score_capture
@@ -33,7 +37,11 @@ def collect(tier: str, rerun: bool) -> list[dict]:
         res_p = out / c["id"] / "result.json"
         if rerun or not res_p.exists():
             try:
-                run_capture(scene, tier, out, calibrate=False)
+                if tier == "photo":
+                    from make_photos import make
+                    run_capture(make(scene), tier, out, calibrate=False)
+                else:
+                    run_capture(scene, tier, out, calibrate=False)
             except Exception as e:                       # a failed capture is reported, not hidden
                 print(f"  FAIL {c['id']}: {type(e).__name__}: {e}")
                 continue

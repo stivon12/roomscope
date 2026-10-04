@@ -1,0 +1,24 @@
+{
+  "lidar": {
+    "ceiling_height": {
+      "q": Infinity,
+      "level": 0.9,
+      "n": 3,
+      "n_rooms": 1,
+      "loro_coverage": 1.0,
+      "loro_median_halfwidth": Infinity,
+      "raw_coverage": 0.6666666666666666,
+      "abs_err_median": 0.0033987709563292334
+    },
+    "wall_length": {
+      "q": 3.0149832947020436,
+      "level": 0.9,
+      "n": 15,
+      "n_rooms": 1,
+      "loro_coverage": 1.0,
+      "loro_median_halfwidth": Infinity,
+      "raw_coverage": 0.3333333333333333,
+      "abs_err_median": 0.04143464834067112
+    }
+  }
+}
