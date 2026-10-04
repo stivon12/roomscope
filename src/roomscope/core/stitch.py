@@ -122,5 +122,6 @@ def footprint(rooms: list[dict], status: str) -> dict:
     hull = union.convex_hull if union.geom_type != "Polygon" else union
     return {"area": {"value": round(tot, 4), "lo": round(tot - h, 4), "hi": round(tot + h, 4), "unit": "m2",
                      "level": rooms[0]["floor_area"]["level"], "method": rooms[0]["floor_area"]["method"]},
-            "polygon": [[round(x, 4), round(y, 4)] for x, y in list(hull.exterior.coords)[:-1]],
+            "polygon": ([[round(x, 4), round(y, 4)] for x, y in list(hull.exterior.coords)[:-1]]
+                    if hull.geom_type == "Polygon" else []),          # no room reconstructed: empty
             "stitch_status": status, "max_room_overlap_m2": round(float(overlap), 4)}

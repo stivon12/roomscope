@@ -173,7 +173,8 @@ def assemble(rooms, faces, grids, openings, warnings) -> dict:
     hull = union.convex_hull if union.geom_type != "Polygon" else union
     footprint = {
         "area": Measurement.from_abs(total, f_half, unit="m2", method="fitstat:v0").to_json(),
-        "polygon": [[round(x, 4), round(y, 4)] for x, y in list(hull.exterior.coords)[:-1]],
+        "polygon": ([[round(x, 4), round(y, 4)] for x, y in list(hull.exterior.coords)[:-1]]
+                    if hull.geom_type == "Polygon" else []),          # no room reconstructed: empty
         "stitch_status": "single_room" if len(rooms) == 1 else "stitched",
         "max_room_overlap_m2": round(float(overlap), 4),
     }
