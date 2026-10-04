@@ -19,8 +19,8 @@ from pathlib import Path
 import numpy as np
 
 
-def run(image_dir: Path, work: Path, K: list[float] | None, overlap: int = 15, mapper: str = "global",
-        init_tri_angle: float = 16.0) -> dict:
+def run(image_dir: Path, work: Path, K: list[float] | None, overlap: int = 15, mapper: str = "incremental",
+        init_tri_angle: float = 16.0, matching: str = "auto") -> dict:
     import pycolmap
     work = Path(work)
     shutil.rmtree(work / "sparse", ignore_errors=True)
@@ -41,14 +41,20 @@ def run(image_dir: Path, work: Path, K: list[float] | None, overlap: int = 15, m
     eo.sift.estimate_affine_shape = True
     pycolmap.extract_features(db, image_dir, camera_mode=pycolmap.CameraMode.SINGLE, reader_options=ro,
                               extraction_options=eo, device=pycolmap.Device.cpu)
-    po = pycolmap.SequentialPairingOptions()
-    po.overlap = overlap
-    po.quadratic_overlap = True
     v = pycolmap.TwoViewGeometryOptions()
     for name, val in (("use_degensac", True), ("compute_relative_pose", True), ("detect_watermark", False)):
         if hasattr(v, name):          # DEGENSAC (4.2+) is meant for plane-dominated scenes
             setattr(v, name, val)
-    pycolmap.match_sequential(db, pairing_options=po, verification_options=v, device=pycolmap.Device.cpu)
+    n_img = sum(1 for f in Path(image_dir).iterdir() if f.suffix.lower() in (".jpg", ".png"))
+    if matching == "exhaustive" or (matching == "auto" and n_img <= 300):
+        # all pairs: a room walk revisits walls, and those revisits are the loop closures that keep scale
+        # from drifting. Sequential quadratic matching found 0 matches beyond a 16-frame gap on 42444946
+        pycolmap.match_exhaustive(db, verification_options=v, device=pycolmap.Device.cpu)
+    else:
+        po = pycolmap.SequentialPairingOptions()
+        po.overlap = overlap
+        po.quadratic_overlap = False
+        pycolmap.match_sequential(db, pairing_options=po, verification_options=v, device=pycolmap.Device.cpu)
     if mapper == "global":           # GLOMAP: rotation averaging first, robust to small baselines
         g = pycolmap.GlobalPipelineOptions()
         if K is not None:
@@ -72,6 +78,8 @@ def run(image_dir: Path, work: Path, K: list[float] | None, overlap: int = 15, m
         recs = pycolmap.incremental_mapping(db, image_dir, work / "sparse", options=opts)
     if not recs:
         return {}
+    sizes = sorted((r.num_reg_images() for r in recs.values()), reverse=True)
+    print(f"models: {len(recs)}, sizes {sizes}")
     rec = max(recs.values(), key=lambda r: r.num_reg_images())
     out = {}
     for img in rec.images.values():
@@ -92,10 +100,11 @@ def main():
     ap.add_argument("work", type=Path)
     ap.add_argument("--K", type=float, nargs=4, default=None)
     ap.add_argument("--overlap", type=int, default=15)
-    ap.add_argument("--mapper", default="global", choices=["incremental", "global"])
+    ap.add_argument("--mapper", default="incremental", choices=["incremental", "global"])
+    ap.add_argument("--matching", default="auto", choices=["auto", "exhaustive", "sequential"])
     ap.add_argument("--init-tri-angle", type=float, default=16.0)
     a = ap.parse_args()
-    res = run(a.image_dir, a.work, a.K, a.overlap, a.mapper, a.init_tri_angle)
+    res = run(a.image_dir, a.work, a.K, a.overlap, a.mapper, a.init_tri_angle, a.matching)
     a.work.mkdir(parents=True, exist_ok=True)
     (a.work / "sfm.json").write_text(json.dumps(res))
     print(f"registered {len(res)} images")

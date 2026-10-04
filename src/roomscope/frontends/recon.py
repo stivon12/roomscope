@@ -306,6 +306,92 @@ def sfm_poses(image_paths: list[Path], work: Path, K: np.ndarray | None, overlap
             for nm, r in raw.items()}
 
 
+def clean_sfm_track(sfm: dict, times: dict[str, float], k: int = 3, factor: float = 4.0) -> tuple[dict, list[str]]:
+    """Drop registered frames that break the continuity of a handheld camera path. A walking camera cannot
+    jump metres between frames ~0.5 s apart, but COLMAP occasionally registers a frame into a wrong place
+    (42444946, exhaustive matching: 13 of 145 frames 1.3-2.4 m off ARKit while the rest were 1.9 cm).
+    A frame is dropped when its distance to the median of its +-k time neighbours exceeds `factor` times
+    the median such distance. Returns (kept sfm, dropped names)."""
+    names = sorted((n for n in sfm if n in times), key=lambda n: times[n])
+    if len(names) < 2 * k + 3:
+        return sfm, []
+    C = np.array([np.asarray(sfm[n]["pose"])[:3, 3] for n in names])
+    dev = np.array([np.linalg.norm(C[i] - np.median(np.delete(C[max(0, i - k):i + k + 1], min(i, k), 0), 0))
+                    for i in range(len(C))])
+    thr = factor * np.median(dev)
+    drop = [n for n, d in zip(names, dev) if d > thr]
+    return {n: v for n, v in sfm.items() if n not in drop}, drop
+
+
+def run_mapanything_posed(image_paths: list[Path], K: np.ndarray, poses_c2w: list[np.ndarray],
+                          cache: Path | None = None, conf_percentile: float = 30.0) -> tuple[list[dict], float]:
+    """MapAnything conditioned on known intrinsics AND camera poses (OpenCV cam2world, arbitrary scale), the
+    recipe of the repo's scripts/demo_inference_on_colmap_outputs.py. The paper reports ~5 % metric-scale
+    error with images + intrinsics + poses vs ~13 % from images + intrinsics alone (arXiv 2509.13414,
+    Table 2). Returns per-view dicts (pts_cam re-projected through the known K at model resolution, metric
+    pose from the model) and the metric scale factor applied to the input poses."""
+    import hashlib
+    key = hashlib.sha1(("posed|" + "|".join(f"{p.name}:{p.stat().st_size}" for p in image_paths)
+                        + "|" + np.array2string(np.round(K, 3)) + "|"
+                        + "|".join(np.array2string(np.round(T, 4)) for T in poses_c2w)).encode()).hexdigest()[:12]
+    cp = None if cache is None else Path(cache) / f"mapanything_posed_{key}.npz"
+    if cp is not None and cp.exists():
+        z = np.load(cp)
+        out = [{k: z[f"{k}_{i}"] for k in ("pts_cam", "pose", "K", "mask", "conf")} for i in range(int(z["n"]))]
+        return out, float(z["scale"])
+    import torch
+    from PIL import Image, ImageOps
+    from mapanything.models import MapAnything
+    from mapanything.utils.image import preprocess_inputs
+
+    dev = _device()
+    model = MapAnything.from_pretrained(MODEL_ID).to(dev).eval()
+    raw = [{"img": np.asarray(ImageOps.exif_transpose(Image.open(p)).convert("RGB")),
+            "intrinsics": torch.from_numpy(K.astype(np.float32)),
+            "camera_poses": torch.from_numpy(np.asarray(T, np.float32)),
+            "is_metric_scale": torch.tensor([False])} for p, T in zip(image_paths, poses_c2w)]
+    views = preprocess_inputs(raw)
+    with torch.no_grad():
+        preds = model.infer(views, memory_efficient_inference=True, minibatch_size=1,
+                            ignore_calibration_inputs=False, ignore_depth_inputs=True, ignore_pose_inputs=False,
+                            ignore_depth_scale_inputs=True, ignore_pose_scale_inputs=True,
+                            use_amp=dev != "cpu", amp_dtype="bf16" if dev == "cuda" else "fp16",
+                            apply_mask=True, mask_edges=True, apply_confidence_mask=False)
+    out = []
+    for p, pr in zip(image_paths, preds):
+        dz = pr["depth_z"][0].squeeze(-1).float().cpu().numpy()
+        H, W = dz.shape
+        W0, H0 = ImageOps.exif_transpose(Image.open(p)).size
+        sc = max(W / W0, H / H0)
+        Kk = K.astype(np.float64).copy()
+        Kk[:2] *= sc
+        Kk[0, 2] -= (W0 * sc - W) / 2
+        Kk[1, 2] -= (H0 * sc - H) / 2
+        uu, vv = np.meshgrid(np.arange(W) + 0.5, np.arange(H) + 0.5)
+        pts = np.stack([(uu - Kk[0, 2]) / Kk[0, 0] * dz, (vv - Kk[1, 2]) / Kk[1, 1] * dz, dz], -1)
+        out.append({"pts_cam": pts.astype(np.float32), "pose": pr["camera_poses"][0].float().cpu().numpy(),
+                    "K": Kk.astype(np.float32), "mask": pr["mask"][0].squeeze(-1).bool().cpu().numpy(),
+                    "conf": pr["conf"][0].float().cpu().numpy()})
+    for v in out:
+        c = v["conf"].squeeze()
+        v["mask"] = v["mask"] & (c >= np.percentile(c[v["mask"]], conf_percentile)) if v["mask"].any() else v["mask"]
+    # metric scale the model put on the input poses: ratio of camera-to-camera distances, output / input
+    Ci = np.array([np.asarray(T)[:3, 3] for T in poses_c2w])
+    Co = np.array([v["pose"][:3, 3] for v in out])
+    iu = np.triu_indices(len(Ci), 1)
+    di, do = np.linalg.norm(Ci[iu[0]] - Ci[iu[1]], axis=1), np.linalg.norm(Co[iu[0]] - Co[iu[1]], axis=1)
+    good = di > np.percentile(di, 25)
+    scale = float(np.median(do[good] / di[good]))
+    del model, preds
+    gc.collect()
+    if dev == "mps":
+        torch.mps.empty_cache()
+    if cp is not None:
+        cp.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(cp, n=len(out), scale=scale, **{f"{k}_{i}": v[k] for i, v in enumerate(out) for k in v})
+    return out, scale
+
+
 def fuse_sfm_depth(views: list[dict], names: list[str], sfm: dict, image_sizes: list[tuple[int, int]],
                    K_known: list[np.ndarray | None]) -> tuple[list[dict], list[int], dict]:
     """SfM poses + MapAnything dense depth.

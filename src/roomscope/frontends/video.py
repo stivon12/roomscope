@@ -14,7 +14,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .recon import fuse_sfm_depth, reray_known_K, run_mapanything, sfm_poses, to_capture
+from .recon import (clean_sfm_track, reray_known_K, run_mapanything, run_mapanything_posed, sfm_poses,
+                    to_capture)
 
 VIDEO_EXT = {".mov", ".mp4", ".m4v", ".avi"}
 
@@ -70,18 +71,31 @@ def _rotate_K(K: np.ndarray, rot, W: int, H: int) -> np.ndarray:
     return K
 
 
+def frame_times(video: Path, total: int, fps: float) -> np.ndarray:
+    """Capture time of every .mov frame. ARKitScenes ships one lowres_wide_intrinsics/*.pincam per video
+    frame, named by its timestamp; their count equals the frame count, and lowres_wide.traj starts later
+    (0.633 s on 42444946), so `traj_start + i/fps` is wrong. Elsewhere: i / fps."""
+    pins = sorted((Path(video).parent / "lowres_wide_intrinsics").glob("*.pincam"))
+    if len(pins) == total:
+        return np.array([float(p.stem.split("_")[-1]) for p in pins])
+    return np.arange(total) / fps
+
+
 def extract_keyframes(video: Path, out_dir: Path, n: int = 32, long_side: int = 1024,
                       trim: float = 0.0) -> tuple[list[Path], np.ndarray]:
+    """n keyframes: the sharpest frame (variance of the Laplacian) in each of n equal time bins, scoring
+    ~6 candidates per second. One sequential decoding pass (grab, retrieve only candidates): seeking
+    before every candidate re-decoded from the previous keyframe and took ~205 s of a 392 s run."""
     cap = cv2.VideoCapture(str(video))
     if not cap.isOpened():
         raise RuntimeError(f"cannot open {video}")
     rot = upright_rotation(video)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    times = frame_times(video, total, fps)
     bins = np.linspace(int(trim * total), int((1 - trim) * total), n + 1).astype(int)
-    step = max(1, int(fps / 6))                 # score ~6 candidates per second within each bin
+    step = max(1, int(fps / 6))
     out_dir.mkdir(parents=True, exist_ok=True)
-    paths, ts, Ks = [], [], {}
     W0, H0 = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     # the ARKitScenes sensor is landscape. Some .mov files carry a rotation flag that OpenCV applies
     # itself (41069042 decodes as 1440x1920), others do not (42444946: 1920x1440). If the decoder already
@@ -89,75 +103,91 @@ def extract_keyframes(video: Path, out_dir: Path, n: int = 32, long_side: int = 
     auto_rotated = rot in (cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_90_COUNTERCLOCKWISE) and H0 > W0
     Ws, Hs = (H0, W0) if auto_rotated else (W0, H0)          # sensor-orientation size
     K0 = arkitscenes_K(video, Ws, Hs)
-    for b in range(n):
-        best, best_s, best_i = None, -1.0, -1
-        for i in range(bins[b], bins[b + 1], step):
-            cap.set(cv2.CAP_PROP_POS_FRAMES, i)
-            ok, f = cap.read()
-            if not ok:
-                continue
-            g = cv2.cvtColor(cv2.resize(f, None, fx=0.25, fy=0.25), cv2.COLOR_BGR2GRAY)
-            s = cv2.Laplacian(g, cv2.CV_64F).var()
-            if s > best_s:
-                best, best_s, best_i = f, s, i
-        if best is None:
+    best = [(-1.0, -1, None)] * n                            # (score, frame index, image) per bin
+    b = 0
+    for i in range(total):
+        if not cap.grab():
+            break
+        while b < n and i >= bins[b + 1]:
+            b += 1
+        if b >= n:
+            break
+        if i < bins[b] or (i - bins[b]) % step:
+            continue
+        ok, f = cap.retrieve()
+        if not ok:
+            continue
+        g = cv2.cvtColor(cv2.resize(f, None, fx=0.25, fy=0.25), cv2.COLOR_BGR2GRAY)
+        sc = cv2.Laplacian(g, cv2.CV_64F).var()
+        if sc > best[b][0]:
+            best[b] = (sc, i, f)
+    cap.release()
+    paths, ts, Ks = [], [], {}
+    for k, (_, i, img) in enumerate(best):
+        if img is None:
             continue
         K = None if K0 is None else _rotate_K(K0, rot, Ws, Hs)
         if rot is not None and not auto_rotated:
-            best = cv2.rotate(best, rot)
-        h, w = best.shape[:2]
+            img = cv2.rotate(img, rot)
+        h, w = img.shape[:2]
         sc = long_side / max(h, w)
         if sc < 1:
-            best = cv2.resize(best, (int(w * sc), int(h * sc)), interpolation=cv2.INTER_AREA)
+            img = cv2.resize(img, (int(w * sc), int(h * sc)), interpolation=cv2.INTER_AREA)
             if K is not None:
-                K = K.copy(); K[:2] *= best.shape[1] / w
-        p = out_dir / f"kf_{b:03d}_{best_i:06d}.jpg"
+                K = K.copy(); K[:2] *= img.shape[1] / w
+        p = out_dir / f"kf_{k:03d}_{i:06d}.jpg"
         if K is not None:
             Ks[p.name] = K.round(3).tolist()
-        cv2.imwrite(str(p), best, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        cv2.imwrite(str(p), img, [cv2.IMWRITE_JPEG_QUALITY, 95])
         paths.append(p)
-        ts.append(best_i / fps)
-    cap.release()
+        ts.append(times[i])
     if Ks:
         import json
         (out_dir / "intrinsics.json").write_text(json.dumps(Ks, indent=1))
     return paths, np.asarray(ts)
 
 
-def load_video(path: Path, work_dir: Path, n_frames: int = 32, scale: float = 1.0, method: str = "mapanything",
+def load_video(path: Path, work_dir: Path, n_frames: int = 32, scale: float = 1.0, method: str = "sfm",
                n_dense: int = 200):
-    """method="sfm" (opt-in, NOT default: see below): COLMAP poses on n_dense frames (SIFT, sequential matching, known K fixed),
-    MapAnything dense depth on n_frames of the registered frames, fused (recon.fuse_sfm_depth): SfM
-    fixes MapAnything's inconsistent poses, MapAnything supplies metric depth and scale.
-    method="mapanything" (default): MapAnything alone on n_frames keyframes.
-
-    Why sfm is not the default (42444946, 2026-10-04): with sensitive SIFT COLMAP registers 93/200
-    (incremental) or 157/200 (global) frames, but every camera gets the same projection centre: the
-    walk is reconstructed as a pure-rotation panorama (most pairs are classified planar/panoramic:
-    low-texture walls seen up close). Checked against ARKit's trajectory (9.5 m path): Sim3 ATE
-    41-63 cm. Fused output: ceiling 2.67 vs 3.06 m. Research on the degeneracy is pending."""
+    """method="sfm" (default):
+    1. n_dense keyframes (sharpest per time bin, one decoding pass);
+    2. COLMAP (subprocess): SIFT, exhaustive matching (loop closures), incremental mapping, known K fixed;
+    3. drop frames that break the camera path's continuity (clean_sfm_track);
+    4. MapAnything on n_frames of the registered frames, conditioned on COLMAP's intrinsics and poses:
+       metric depth and metric poses (run_mapanything_posed).
+    On 42444946 step 2 registered 145/200 frames; 112 within 1.9 cm (median) of ARKit after a similarity
+    fit. Falls back to method="mapanything" (MapAnything alone on n_frames keyframes) when fewer than 8
+    frames register."""
     import json
     video = find_video(path)
     work_dir = Path(work_dir)
     if method == "sfm":
         dense, ts_d = extract_keyframes(video, work_dir / "frames_dense", n=n_dense, long_side=1024)
-        Ks = json.loads((work_dir / "frames_dense" / "intrinsics.json").read_text()) \
-            if (work_dir / "frames_dense" / "intrinsics.json").exists() else {}
+        kp = work_dir / "frames_dense" / "intrinsics.json"
+        Ks = json.loads(kp.read_text()) if kp.exists() else {}
         K = np.asarray(Ks[dense[0].name]) if dense and dense[0].name in Ks else None
+        if K is None:
+            from .recon import image_intrinsics
+            K = image_intrinsics(dense[0]) if dense else None
         sfm = sfm_poses(dense, work_dir / "sfm", K)
+        times = {p.name: t for p, t in zip(dense, ts_d)}
+        sfm, dropped = clean_sfm_track(sfm, times)
         reg = [i for i, p in enumerate(dense) if p.name in sfm]
-        print(f"SfM registered {len(reg)}/{len(dense)} frames")
-        if len(reg) >= 8:
+        load_video.diag = {"dense": len(dense), "registered": len(reg) + len(dropped), "dropped_jumps": len(dropped)}
+        print(f"SfM: {len(reg) + len(dropped)}/{len(dense)} registered, {len(dropped)} dropped as path jumps")
+        if len(reg) >= 8 and K is not None:
             pick = [reg[int(round(j))] for j in np.linspace(0, len(reg) - 1, min(n_frames, len(reg)))]
             paths = [dense[i] for i in pick]
-            views = run_mapanything(paths, cache=work_dir / "cache")
-            sizes = [cv2.imread(str(p)).shape[1::-1] for p in paths]
-            Kk = [np.asarray(Ks[p.name]) if p.name in Ks else None for p in paths]
-            fused, kept, diag = fuse_sfm_depth(views, [p.name for p in paths], sfm, sizes, Kk)
-            print("fusion:", diag)
-            if len(fused) >= 8:
-                return to_capture(fused, ts_d[pick][kept], Path(path), scale=scale)
-        print("SfM too sparse; falling back to MapAnything alone")
+            views, s_metric = run_mapanything_posed(paths, K, [sfm[p.name]["pose"] for p in paths],
+                                                    cache=work_dir / "cache")
+            load_video.diag["metric_scale"] = s_metric
+            # evaluation provenance (out/, never read back by the pipeline): which frames, metric camera centres
+            (work_dir / "video_diag.json").write_text(json.dumps({
+                **load_video.diag, "dropped": dropped,
+                "picked": {p.name: [float(x) for x in v["pose"][:3, 3]] for p, v in zip(paths, views)},
+                "frame_times": {p.name: float(t) for p, t in zip(dense, ts_d)}}, indent=1))
+            return to_capture(views, ts_d[pick], Path(path), scale=scale, snap=False)
+        print("SfM too sparse or no intrinsics; falling back to MapAnything alone")
     paths, ts = extract_keyframes(video, work_dir / "frames", n=n_frames)
     views = run_mapanything(paths, cache=work_dir / "cache")
     reray_known_K(views, paths)
