@@ -169,9 +169,9 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True) -> 
     if tier != "lidar":
         raise NotImplementedError(f"{tier} tier front-end not implemented yet")
     from .core import drift as D
-    from .frontends.lidar import load_stray
+    from .frontends.lidar import load_any
 
-    cap = load_stray(capture)
+    cap = load_any(capture)
     if drift:
         dr = D.correct_drift(cap)
         corrs = dr.corrections

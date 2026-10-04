@@ -16,6 +16,8 @@ def detect_tier(path: Path) -> str:
     # Stray Scanner export: odometry.csv + depth/ (possibly one level down)
     if any(path.glob("odometry.csv")) or any(path.glob("*/odometry.csv")):
         return "lidar"
+    if (path / "lowres_depth").is_dir() or any(path.glob("*/lowres_depth")):
+        return "lidar"  # ARKitScenes raw scene (benchmark data; same LiDAR front-end)
     if any(p.suffix.lower() in VIDEO_EXT for p in path.iterdir()):
         return "video"
     room_dirs = [d for d in path.iterdir() if d.is_dir()]
