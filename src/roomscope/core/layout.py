@@ -340,7 +340,7 @@ def _overlap(a: list[tuple[float, float]], b: list[tuple[float, float]]) -> floa
 
 
 def drop_layered(planes: list[WallPlane], ceil_z: float, max_gap: float = 0.6, cover: float = 0.6,
-                 max_std: float = 0.045, top_margin: float = 0.4) -> list[WallPlane]:
+                 max_std: float = 0.045, top_margin: float = 0.6, min_support: float = 0.3) -> list[WallPlane]:
     """Remove surfaces standing in front of a wall: a wardrobe face, a curtain, a radiator panel.
 
     A plane is dropped when another plane facing the same way lies BEHIND it (further from the room,
@@ -349,7 +349,10 @@ def drop_layered(planes: list[WallPlane], ceil_z: float, max_gap: float = 0.6, c
     - a 1.95 m wardrobe 17 cm in front of the wall;
     - a curtain 17 cm in front of a window wall.
     Both had been taken as the wall. A wall jog or alcove is unaffected: there the rear plane runs
-    beside the front one rather than behind it, so coverage is low."""
+    beside the front one rather than behind it, so coverage is low.
+    top_margin is 0.6 m because a window wall is often observed only to the curtain rail (2.65 m under
+    a 3.06 m ceiling on 42444949). The rear plane also needs >= min_support of the front plane's points,
+    so a faint spurious plane cannot remove a strong real wall (42444949, left wall)."""
     def wall_like(p: WallPlane) -> bool:
         return p.top >= ceil_z - top_margin and p.std <= max_std
 
@@ -357,7 +360,7 @@ def drop_layered(planes: list[WallPlane], ceil_z: float, max_gap: float = 0.6, c
     for i, p in enumerate(planes):
         ext = sum(h - l for l, h in p.segments)
         for j, q in enumerate(planes):
-            if i == j or q.face != p.face or not wall_like(q):
+            if i == j or q.face != p.face or not wall_like(q) or q.n < min_support * p.n:
                 continue
             behind = (p.offset - q.offset) * p.sign      # face '+x': room at larger x, so behind = smaller x
             if 0.03 < behind <= max_gap and _overlap(p.segments, q.segments) >= cover * ext:
