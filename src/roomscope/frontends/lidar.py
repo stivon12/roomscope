@@ -19,7 +19,7 @@ Design choices worth defending:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import cv2
@@ -38,6 +38,7 @@ class LidarCapture:
     K_depth: np.ndarray            # 3x3 intrinsics at depth resolution
     timestamps: np.ndarray
     root: Path
+    align: np.ndarray = field(default_factory=lambda: np.eye(4))   # raw capture world -> poses' world (gravity)
 
     def world(self, i: int, corr: np.ndarray | None = None):
         """Frame i points/normals/camera centre in world, optionally after a 4x4 world correction."""
@@ -151,33 +152,36 @@ def _arkitscenes_root(path: Path) -> Path:
     return hits[0]
 
 
-def _gravity_align(poses: np.ndarray, pts: list[np.ndarray], nrms: list[np.ndarray]) -> np.ndarray:
-    """4x4 rotation taking the capture's world 'up' to +z.
+def _gravity_align(poses: np.ndarray, pts: list[np.ndarray], nrms: list[np.ndarray],
+                   up0=(0.0, 0.0, 1.0)) -> np.ndarray:
+    """4x4 rotation taking the capture's world 'up' to +z, estimated from horizontal surfaces.
 
-    Initial up = mean camera-up direction (people hold the phone roughly upright), then refined with the
-    mean of world normals within 25 deg of it (floor normals point up; ceiling normals, flipped, too).
-    Needed because ARKitScenes trajectories are not guaranteed z-up; harmless when they already are."""
-    up = np.mean(poses[:, :3, 1], axis=0)        # our camera +y is 'up'; mean camera-up in world
-    up /= np.linalg.norm(up)
-    for _ in range(2):
-        acc = np.zeros(3)
-        for i in range(0, len(poses), max(1, len(poses) // 60)):
-            Nw = nrms[i] @ poses[i, :3, :3].T
-            d = Nw @ up
-            m = np.abs(d) > np.cos(np.deg2rad(25))
-            acc += (Nw[m] * np.sign(d[m])[:, None]).sum(0)
-        if np.linalg.norm(acc) > 0:
-            up = acc / np.linalg.norm(acc)
+    ARKit world frames are gravity-aligned whatever way the phone is held (ARKitScenes' sky_direction
+    only describes image orientation, e.g. 'Left' = device held sideways; it does not affect poses), and
+    ARKitScenes stores them z-up. So the prior is world +z, refined by the mean of world normals within
+    25 deg of it (floor normals point up; ceiling normals, flipped, too). We do NOT use the camera's own
+    up axis: on a sideways-held device it is 90 deg off (this was a real bug on scene 41069042)."""
+    up = np.asarray(up0, float)
+    sample = range(0, len(poses), max(1, len(poses) // 80))
+    Nw = np.concatenate([nrms[i] @ poses[i, :3, :3].T for i in sample])
+    frac = [(np.abs(Nw[:, k]) > 0.9).mean() for k in range(3)]
+    if int(np.argmax(frac)) != int(np.argmax(np.abs(up))):
+        raise ValueError(f"gravity prior {up0} disagrees with surface normals (aligned fractions {np.round(frac, 3)})")
+    for _ in range(3):
+        d = Nw @ up
+        m = np.abs(d) > np.cos(np.deg2rad(25))
+        acc = (Nw[m] * np.sign(d[m])[:, None]).sum(0)
+        up = acc / np.linalg.norm(acc)
     z = np.array([0, 0, 1.0])
     v = np.cross(up, z)
-    s, c = np.linalg.norm(v), float(up @ z)
+    s_, c = np.linalg.norm(v), float(up @ z)
     G = np.eye(4)
-    if s < 1e-9:
+    if s_ < 1e-9:
         if c < 0:
             G[:3, :3] = np.diag([1, -1, -1])
         return G
     vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-    G[:3, :3] = np.eye(3) + vx + vx @ vx * ((1 - c) / s ** 2)
+    G[:3, :3] = np.eye(3) + vx + vx @ vx * ((1 - c) / s_ ** 2)
     return G
 
 
@@ -220,7 +224,7 @@ def load_arkitscenes(path: Path, pixel_stride: int = 3, frame_stride: int = 1, m
     poses = np.asarray(poses)
     G = _gravity_align(poses, pts, nrms)
     poses = np.einsum("ij,fjk->fik", G, poses)
-    return LidarCapture(pts, nrms, poses, Kd, np.asarray(ts), root)
+    return LidarCapture(pts, nrms, poses, Kd, np.asarray(ts), root, align=G)
 
 
 def load_any(path: Path, **kw) -> LidarCapture:

@@ -133,6 +133,30 @@ class HPlane:
         return self.a * x + self.b * y + self.c
 
 
+def pick_level(P: np.ndarray, side: str, min_frac: float = 0.03, min_extent_m2: float = 1.0) -> float:
+    """Height of the floor (side='low') or ceiling (side='high') among horizontal-surface points.
+
+    Not the most populated level: in furnished rooms bed and table tops often out-number visible floor.
+    The floor is the LOWEST level, and the ceiling the HIGHEST, that has real mass (>= min_frac of the
+    points within +-3 cm) and real horizontal extent (occupies >= min_extent_m2 at 10 cm cells)."""
+    z = P[:, 2]
+    edges = np.arange(z.min() - 0.02, z.max() + 0.03, 0.01)
+    h, _ = np.histogram(z, edges)
+    hs = gaussian_filter1d(h.astype(float), 1.0)
+    order = range(len(hs)) if side == "low" else range(len(hs) - 1, -1, -1)
+    for i in order:
+        lvl = edges[i] + 0.005
+        band = np.abs(z - lvl) < 0.03
+        if band.sum() < max(100, min_frac * len(z)):
+            continue
+        if not ((i == 0 or hs[i] >= hs[i - 1]) and (i == len(hs) - 1 or hs[i] >= hs[i + 1])):
+            continue
+        cells = np.unique(np.floor(P[band, :2] / 0.1).astype(np.int64), axis=0)
+        if len(cells) * 0.01 >= min_extent_m2:
+            return float(lvl)
+    return float(edges[np.argmax(hs)] + 0.005)
+
+
 def fit_hplane(P: np.ndarray, z0: float | None = None, win: float = 0.04, iters: int = 4) -> HPlane:
     """Iteratively re-weighted least squares plane z = ax+by+c on points near z0."""
     if z0 is None:
@@ -553,7 +577,8 @@ def ceiling_height(cloud: Cloud, floor: HPlane, poly: Polygon):
     if len(Q) < 50:
         return None
     zr = Q[:, 2] - floor.z(Q[:, 0], Q[:, 1])
-    cp = fit_hplane(np.c_[Q[:, :2], zr], z0=float(np.median(zr)))
+    Qr = np.c_[Q[:, :2], zr]
+    cp = fit_hplane(Qr, z0=pick_level(Qr, "high", min_extent_m2=min(1.0, 0.3 * poly.area)))
     cx, cy = poly.centroid.x, poly.centroid.y
     h = cp.z(cx, cy)
     se = np.hypot(cp.std / np.sqrt(min(cp.n, 400)), floor.std / np.sqrt(min(floor.n, 400)))

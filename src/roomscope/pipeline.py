@@ -32,9 +32,10 @@ def _name_room(poly: Polygon, k: int) -> str:
 def analyse(cap, corrs, warnings: list[str]):
     """Shared geometry core on posed frames. Returns plain-python room/opening structures."""
     cloud = L.fuse(cap, corrs)
-    floor = L.fit_hplane(cloud.P[cloud.cls == "floor"])
-    cz = cloud.P[cloud.cls == "ceil", 2]
-    ceil_z = float(np.median(cz) - floor.c) if len(cz) > 100 else 2.4
+    fp = cloud.P[cloud.cls == "floor"]
+    floor = L.fit_hplane(fp, z0=L.pick_level(fp, "low"))
+    cp = cloud.P[cloud.cls == "ceil"]
+    ceil_z = (L.pick_level(cp, "high") - floor.c) if len(cp) > 100 else 2.4
     walls = L.fit_wall_planes(cloud, floor, ceil_z)
     masks, g = L.segment_rooms(cloud, floor, walls)
 
@@ -63,7 +64,7 @@ def analyse(cap, corrs, warnings: list[str]):
     R = cloud.R
     grids = L.opening_evidence(cap, lambda i: R @ corrs[i], faces, [r["poly"] for r in rooms], floor)
     openings = L.detect_openings(grids, faces)
-    return rooms, faces, grids, openings
+    return rooms, faces, grids, openings, cloud
 
 
 def assemble(rooms, faces, grids, openings, warnings) -> dict:
@@ -180,7 +181,7 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True) -> 
     else:
         corrs = D.identity(cap)
         drift_meta = {"enabled": False, "method": "none (ablation: odometry poses used as-is)"}
-    rooms, faces, grids, openings = analyse(cap, corrs, warnings)
+    rooms, faces, grids, openings, cloud = analyse(cap, corrs, warnings)
     body = assemble(rooms, faces, grids, openings, warnings)
     result = {
         "schema_version": "1.0",
@@ -196,6 +197,10 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True) -> 
     out = Path(out_dir) / capture.name
     out.mkdir(parents=True, exist_ok=True)
     (out / "result.json").write_text(json.dumps(result, indent=2))
+    # fused cloud in the result frame (5 cm), for registration against ground truth and for the report
+    keep = np.unique(np.floor(cloud.P / 0.05).astype(np.int64), axis=0, return_index=True)[1]
+    np.savez_compressed(out / "cloud.npz", P=cloud.P[keep].astype(np.float32), N=cloud.N[keep].astype(np.float32),
+                        T_world_to_result=cloud.R @ cap.align)
     from .render import render_plan
     render_plan(result, out / "plan.png")
     return out / "result.json"
