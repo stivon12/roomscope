@@ -181,7 +181,8 @@ def assemble(rooms, faces, grids, openings, warnings) -> dict:
 
 
 def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, load_kw: dict | None = None,
-                depth_scale: float | None = None, depth_correction: bool = True, device: str | None = None) -> Path:
+                depth_scale: float | None = None, depth_correction: bool = True, device: str | None = None,
+                calibrate: bool = True) -> Path:
     t0 = time.time()
     capture = Path(capture)
     warnings: list[str] = []
@@ -221,6 +222,10 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, loa
         "damage_regions": [], "concealed_flags": [], "scope_items": [],
         "warnings": sorted(set(warnings)),
     }
+    if calibrate:
+        from .core import calibrate as Cal
+        result = Cal.apply(result, tier)
+        result["warnings"] = sorted(set(result["warnings"]))
     out = Path(out_dir) / capture.name
     out.mkdir(parents=True, exist_ok=True)
     (out / "result.json").write_text(json.dumps(result, indent=2))

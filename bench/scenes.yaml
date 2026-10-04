@@ -1,0 +1,13 @@
+# Laser-scored ARKitScenes captures (Validation split). room = visit id: captures of one room share it,
+# so leave-one-room-out never calibrates a room with its own repeats.
+root: benchmark/raw/arkitscenes/raw/Validation
+captures:
+  - {id: "42444946", room: "421337"}
+  - {id: "42444949", room: "421337"}
+  - {id: "42444950", room: "421337"}
+  - {id: "42897521", room: "422829"}
+  - {id: "42897647", room: "423448"}
+  - {id: "42897501", room: "422851"}
+  - {id: "42897545", room: "422813"}
+  - {id: "42898811", room: "434650"}
+  - {id: "42898818", room: "434641"}
