@@ -66,6 +66,11 @@ error, Spearman 0.01: the earlier normaliser looked at the wrong wall.)
 Rejected fix: placing inferred walls from the ceiling edge (research suggestion). Checked first: the
 ceiling edge near those walls is missing or runs 40-60 cm past the wall through openings; it matched
 the laser on 1 of 8. Not built.
+*Correction (added after fix2-after):* that check applied the saved cloud's world-to-result transform
+to points already in the result frame. Redone correctly over all 11 bad neighbour walls: the ceiling
+edge is within 5 cm of the laser wall on 4/11, missing on 5/11, and 18-29 cm off on 2/11. The
+rejection stands (4/11 is not a reliable placement rule), but the numbers above were wrong. The root
+cause and the fix are unaffected: they come from the laser scorer, not from the saved cloud.
 
 **Fix.** Mondrian (class-conditional) conformal on wall length with two bins, "corner-supported" (both
 neighbours >= 30 % observed) and "inferred" (otherwise), each with its own room-pooled quantile; the
