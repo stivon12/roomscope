@@ -84,8 +84,14 @@ class DriftResult:
     method: str = "plane-anchored fragment alignment + robust joint LSQ (Manhattan yaw, wall/floor planes)"
 
 
-def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragment_yaw: bool = True,
-                  match_dist: float = MATCH_DIST, prior_sigma: float | None = None) -> DriftResult:
+def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragment_yaw: bool | str = True,
+                  match_dist: float = MATCH_DIST, prior_sigma: float | None = None,
+                  merge_dist: float = 0.0, reassoc_iters: int = 0) -> DriftResult:
+    """per_fragment_yaw: True = each fragment's own Manhattan yaw (noisy, ~1 deg); "linear" = one robust
+    linear yaw trend over the capture fitted to those per-fragment estimates; False = no yaw correction.
+    merge_dist/reassoc_iters: after the joint solve, merge map planes of the same face whose solved
+    offsets agree within merge_dist (with overlapping extents) and re-solve, so revisiting a wall
+    actually constrains the drift instead of spawning a duplicate plane that absorbs it."""
     F = len(cap.poses)
     ts = cap.timestamps - cap.timestamps[0]
     frag_id = np.floor(ts / frag_seconds).astype(int)
@@ -113,6 +119,23 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragm
         if per_fragment_yaw and (np.abs(N[:, 2]) < 0.3).sum() > 500:
             theta[k] = -manhattan_yaw(N)
         frag_pts[k] = (P, N)
+
+    if per_fragment_yaw == "linear":
+        have = np.array([k in frag_pts and (np.abs(frag_pts[k][1][:, 2]) < 0.3).sum() > 500 for k in range(K)])
+        kk = np.arange(K)[have]
+        th = theta[have]
+        th = (th + np.pi / 4) % (np.pi / 2) - np.pi / 4      # wrap to +-45 deg
+        if len(kk) >= 4:
+            w = np.ones(len(kk))
+            for _ in range(5):                                # Huber IRLS on theta = a + b k
+                A = np.c_[np.ones(len(kk)), kk] * np.sqrt(w)[:, None]
+                ab = np.linalg.lstsq(A, th * np.sqrt(w), rcond=None)[0]
+                r = np.abs(th - (ab[0] + ab[1] * kk))
+                w = np.where(r < np.deg2rad(0.5), 1.0, np.deg2rad(0.5) / np.maximum(r, 1e-9))
+            theta = ab[0] + ab[1] * np.arange(K)
+            theta -= theta[0]                                 # gauge: fragment 0 keeps its yaw
+        else:
+            theta = np.zeros(K)
 
     def frag_M(k, t):
         """Correction in the R0 frame: rotate by theta about pivot, then translate by t."""
@@ -221,6 +244,40 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragm
     x0 = np.concatenate([t[1:].ravel(), np.array([g["g"] for g in gmap])])
     sol = least_squares(resid, x0, loss="soft_l1", f_scale=0.02) if len(x0) else None
     tt, g = unpack(sol.x) if sol is not None else (t, np.array([]))
+
+    for _ in range(reassoc_iters if merge_dist > 0 else 0):
+        # merge map planes: same face, solved offsets within merge_dist, extents overlapping
+        order = sorted(range(len(gmap)), key=lambda m: (gmap[m]["face"], g[m]))
+        root = list(range(len(gmap)))
+        for a_, b_ in zip(order[:-1], order[1:]):
+            A_, B_ = gmap[a_], gmap[b_]
+            if A_["face"] == B_["face"] and abs(g[a_] - g[b_]) < merge_dist and \
+                    A_["lo"] <= B_["hi"] + EXTENT_SLACK and B_["lo"] <= A_["hi"] + EXTENT_SLACK:
+                root[b_] = root[a_]
+        for m in range(len(root)):                     # path compression
+            while root[root[m]] != root[m]:
+                root[m] = root[root[m]]
+        uniq = sorted(set(root))
+        remap = {r: i for i, r in enumerate(uniq)}
+        new_g = np.zeros(len(uniq)); new_w = np.zeros(len(uniq))
+        new_map = []
+        for m in range(len(gmap)):
+            i = remap[root[m]]
+            new_g[i] += g[m] * gmap[m]["wsum"]; new_w[i] += gmap[m]["wsum"]
+        for r in uniq:
+            members = [m for m in range(len(gmap)) if root[m] == r]
+            new_map.append({"face": gmap[r]["face"], "axis": gmap[r]["axis"],
+                            "lo": min(gmap[m]["lo"] for m in members), "hi": max(gmap[m]["hi"] for m in members),
+                            "wsum": sum(gmap[m]["wsum"] for m in members)})
+        merged = len(uniq) < len(gmap)
+        gmap = new_map
+        g = new_g / np.maximum(new_w, 1e-12)
+        assoc = [(oi, remap[root[mi]]) for oi, mi in assoc]
+        M_ = len(gmap)
+        if not merged:
+            break
+        sol = least_squares(resid, np.concatenate([tt[1:].ravel(), g]), loss="soft_l1", f_scale=0.02)
+        tt, g = unpack(sol.x)
 
     def rms(tvec, gvec):
         if not assoc:

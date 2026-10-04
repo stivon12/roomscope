@@ -30,6 +30,8 @@ def main(scene: Path, nodrift_out: Path):
         "no yaw + 8cm + prior 3cm": dict(per_fragment_yaw=False, match_dist=0.08, prior_sigma=0.03),
         "no yaw + 8cm + prior 1cm": dict(per_fragment_yaw=False, match_dist=0.08, prior_sigma=0.01),
         "no yaw + 8cm + prior 0.5cm": dict(per_fragment_yaw=False, match_dist=0.08, prior_sigma=0.005),
+        "linear yaw + 8cm + merge 6cm": dict(per_fragment_yaw="linear", match_dist=0.08, merge_dist=0.06,
+                                             reassoc_iters=4),
     }
     if len(sys.argv) > 3:
         variants = {k: v for k, v in variants.items() if k in sys.argv[3].split(",")}
