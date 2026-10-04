@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+weights/
+out/
+*.egg-info/
+.DS_Store
+# raw captures are large: tracked via benchmark/raw/MANIFEST.md + fetch script, not git
+benchmark/raw/*/
