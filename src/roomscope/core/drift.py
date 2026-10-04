@@ -114,14 +114,18 @@ class DriftResult:
 def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragment_yaw: bool | str = False,
                   match_dist: float = 0.08, prior_sigma: float | None = 0.03,
                   merge_dist: float = 0.0, reassoc_iters: int = 0, structural: bool = False,
-                  loss: str = "soft_l1") -> DriftResult:
+                  loss: str = "soft_l1", prior_mode: str = "absolute") -> DriftResult:
     """per_fragment_yaw: True = each fragment's own Manhattan yaw (noisy, ~1 deg); "linear" = one robust
     linear yaw trend over the capture fitted to those per-fragment estimates; False = no yaw correction.
     merge_dist/reassoc_iters: after the joint solve, merge map planes of the same face whose solved
     offsets agree within merge_dist (with overlapping extents) and re-solve, so revisiting a wall
     actually constrains the drift instead of spawning a duplicate plane that absorbs it.
     structural: keep only tall, wide, outermost wall planes as landmarks (see _frag_planes).
-    loss: scipy robust loss for the joint solve ("soft_l1", or the stronger "cauchy")."""
+    loss: scipy robust loss for the joint solve ("soft_l1", or the stronger "cauchy").
+    prior_mode: "absolute" penalises each fragment's correction (|t_k| ~ prior_sigma): safe, but it caps
+    the correction near prior_sigma, so a 15 cm drift can never be removed. "relative" is the pose-graph
+    odometry edge (Choi et al. 2015): trust ARKit BETWEEN consecutive fragments (|t_k - t_k-1| ~
+    prior_sigma), so slow drift may accumulate into a large correction."""
     F = len(cap.poses)
     ts = cap.timestamps - cap.timestamps[0]
     frag_id = np.floor(ts / frag_seconds).astype(int)
@@ -285,7 +289,11 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragm
         if prior_sigma is not None:
             # trust the odometry: a fragment moves only when its planes disagree by clearly more than
             # ARKit's typical drift (prior_sigma); the prior weighs as much as the fragment's own planes
-            r += list((np.sqrt(frag_w[1:])[:, None] * tt[1:] * (0.02 / prior_sigma)).ravel())
+            if prior_mode == "relative":
+                fw_ = np.sqrt(np.minimum(frag_w[1:], frag_w[:-1]) + 1e-9)[:, None]
+                r += list((fw_ * (tt[1:] - tt[:-1]) * (0.02 / prior_sigma)).ravel())
+            else:
+                r += list((np.sqrt(frag_w[1:])[:, None] * tt[1:] * (0.02 / prior_sigma)).ravel())
         return np.asarray(r)
 
     x0 = np.concatenate([t[1:].ravel(), np.array([g["g"] for g in gmap])])
