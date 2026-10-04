@@ -129,7 +129,8 @@ def reray_known_K(views: list[dict], image_paths: list[Path]) -> int:
         K = image_intrinsics(p)
         if K is None:
             continue
-        W0, H0 = Image.open(p).size
+        from PIL import ImageOps
+        W0, H0 = ImageOps.exif_transpose(Image.open(p)).size   # the model sees the upright image
         H, W = v["pts_cam"].shape[:2]
         sc = max(W / W0, H / H0)
         ox, oy = (W0 * sc - W) / 2, (H0 * sc - H) / 2

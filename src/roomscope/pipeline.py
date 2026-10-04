@@ -264,8 +264,12 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, loa
         per_room = []
         for k, folder in enumerate(room_folders(capture)):
             w: list[str] = []
-            cap = load_room(folder)
-            b, cloud, _ = _geometry(cap, False, w, single_room=True)
+            try:
+                cap = load_room(folder, work=out / "rooms" / folder.name)
+                b, cloud, _ = _geometry(cap, False, w, single_room=True)
+            except Exception as e:                    # one bad folder must not sink the whole property
+                warnings.append(f"{folder.name}: skipped, {type(e).__name__}: {e}")
+                continue
             if not b["rooms"]:
                 warnings.append(f"{folder.name}: no room could be reconstructed from its photos")
                 continue

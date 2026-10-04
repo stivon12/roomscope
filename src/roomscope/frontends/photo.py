@@ -22,8 +22,20 @@ def room_folders(path: Path) -> list[Path]:
     return dirs
 
 
-def images(folder: Path) -> list[Path]:
-    ims = sorted(f for f in folder.iterdir() if f.suffix.lower() in IMG_EXT)
+def images(folder: Path, work: Path | None = None) -> list[Path]:
+    """The room's photos, one per file stem (a re-run or an export may leave X.HEIC next to X.jpg).
+    HEIC/HEIF are converted to JPEG under `work` (never inside the user's folder), keeping the EXIF:
+    without it the focal length is lost and MapAnything guesses it (docs/REVIEW.md 3.4). Live Photo
+    .MOV companions are not images and are ignored."""
+    by_stem: dict[str, Path] = {}
+    for f in sorted(folder.iterdir()):
+        if f.suffix.lower() not in IMG_EXT or f.name.startswith("."):
+            continue
+        prev = by_stem.get(f.stem)
+        # prefer the camera original (HEIC) over a JPEG with the same stem
+        if prev is None or f.suffix.lower() in (".heic", ".heif"):
+            by_stem[f.stem] = f
+    ims = [by_stem[k] for k in sorted(by_stem)]
     if any(f.suffix.lower() in (".heic", ".heif") for f in ims):
         from PIL import Image
         try:
@@ -31,12 +43,15 @@ def images(folder: Path) -> list[Path]:
             pillow_heif.register_heif_opener()
         except ImportError as e:
             raise RuntimeError("HEIC photos need `pip install pillow-heif` (or export as JPEG)") from e
+        out_dir = Path(work if work is not None else folder) / "converted"
+        out_dir.mkdir(parents=True, exist_ok=True)
         conv = []
         for f in ims:
             if f.suffix.lower() in (".heic", ".heif"):
-                j = f.with_suffix(".jpg")
+                j = out_dir / (f.stem + ".jpg")
                 if not j.exists():
-                    Image.open(f).convert("RGB").save(j, quality=95)
+                    im = Image.open(f)     # pillow-heif applies the orientation and resets the tag to 1
+                    im.convert("RGB").save(j, quality=95, exif=im.info.get("exif", b""))
                 conv.append(j)
             else:
                 conv.append(f)
@@ -44,10 +59,11 @@ def images(folder: Path) -> list[Path]:
     return ims
 
 
-def load_room(folder: Path, scale: float = 1.0):
-    ims = images(folder)
+def load_room(folder: Path, scale: float = 1.0, work: Path | None = None):
+    work = Path(work) if work is not None else Path(folder) / ".roomscope"
+    ims = images(folder, work)
     if len(ims) < 2:
         raise ValueError(f"{folder.name}: need at least 2 photos, found {len(ims)}")
-    views = run_mapanything(ims, cache=Path(folder) / ".cache")
+    views = run_mapanything(ims, cache=work / "cache")
     reray_known_K(views, ims)
     return to_capture(views, np.arange(len(ims), dtype=float), folder, scale=scale)
