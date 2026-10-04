@@ -66,20 +66,29 @@ def main():
     ap.add_argument("--tier", required=True, choices=["lidar", "video", "photo"])
     ap.add_argument("--level", type=float, default=0.9)
     ap.add_argument("--rerun", action="store_true")
+    ap.add_argument("--from-records", action="store_true", help="refit from out/calib/records_<tier>.json")
     a = ap.parse_args()
-    recs = collect(a.tier, a.rerun)
-    Path("out/calib").mkdir(parents=True, exist_ok=True)
-    Path(f"out/calib/records_{a.tier}.json").write_text(json.dumps(recs, indent=1))
+    rec_p = Path(f"out/calib/records_{a.tier}.json")
+    if a.from_records:
+        recs = json.loads(rec_p.read_text())
+    else:
+        recs = collect(a.tier, a.rerun)
+        Path("out/calib").mkdir(parents=True, exist_ok=True)
+        rec_p.write_text(json.dumps(recs, indent=1))
     fitted = C.fit(recs, a.level)
     cfg = C.load()
     cfg[a.tier] = fitted[a.tier]
     C.CONFIG.write_text(json.dumps(cfg, indent=2))
     for kind, v in fitted[a.tier].items():
-        print(f"{a.tier:6s} {kind:15s} n={v['n']:3d} rooms={v['n_rooms']}  q={v['q']:.2f}  "
-              f"raw coverage {v['raw_coverage']:.2f} -> leave-one-room-out {v['loro_coverage']} "
-              f"(target {v['level']:.2f}; {v['loro_infinite_folds']} folds too small), "
-              f"median half-width {(v['loro_median_halfwidth'] or float('nan')) * 100:.1f} cm, "
-              f"median |err| {v['abs_err_median'] * 100:.1f} cm")
+        cov = v["loro_coverage"]
+        ci = v["loro_coverage_ci95"]
+        print(f"{a.tier:6s} {kind:15s} n={v['n']:3d} rooms={v['n_rooms']}  q={v['q']:.2f} ({v['method']})")
+        print(f"    raw coverage {v['raw_coverage']:.2f} -> leave-one-room-out "
+              + (f"{cov:.2f} [95% CI {ci[0]:.2f}-{ci[1]:.2f}]" if cov is not None else "n/a")
+              + f" (target {v['level']:.2f}, nominal {v['nominal_level']:.2f}; {v['loro_infinite_folds']} folds too small)")
+        print(f"    median half-width {(v['loro_median_halfwidth'] or float('nan')) * 100:.1f} cm, "
+              f"median |err| {v['abs_err_median'] * 100:.1f} cm, width/error {v['width_to_error'] or float('nan'):.1f}, "
+              f"interval score {(v['loro_interval_score'] or float('nan')) * 100:.1f} cm; per room {v['loro_per_room']}")
 
 
 if __name__ == "__main__":

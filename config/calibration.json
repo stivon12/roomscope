@@ -1,24 +1,58 @@
 {
   "lidar": {
     "ceiling_height": {
-      "q": Infinity,
+      "q": 1.3804973640595832,
       "level": 0.9,
-      "n": 3,
-      "n_rooms": 1,
+      "nominal_level": 0.9,
+      "method": "room-pooled, no PAC margin (n too small)",
+      "n": 11,
+      "n_rooms": 7,
       "loro_coverage": 1.0,
-      "loro_median_halfwidth": Infinity,
-      "raw_coverage": 0.6666666666666666,
-      "abs_err_median": 0.0033987709563292334
+      "loro_coverage_ci95": [
+        0.47817624989501856,
+        1.0
+      ],
+      "loro_median_halfwidth": 0.022375711184036702,
+      "loro_interval_score": 0.04467353875336464,
+      "loro_infinite_folds": 2,
+      "loro_per_room": {
+        "422813": 1.0,
+        "422829": 1.0,
+        "422851": 1.0,
+        "423448": 1.0,
+        "434641": 1.0
+      },
+      "raw_coverage": 0.5454545454545454,
+      "abs_err_median": 0.004754383336706081,
+      "width_to_error": 4.706332998285112
     },
     "wall_length": {
-      "q": 3.0149832947020436,
+      "q": 7.0497234167009095,
       "level": 0.9,
-      "n": 15,
-      "n_rooms": 1,
-      "loro_coverage": 1.0,
-      "loro_median_halfwidth": Infinity,
-      "raw_coverage": 0.3333333333333333,
-      "abs_err_median": 0.04143464834067112
+      "nominal_level": 0.93,
+      "method": "room-pooled",
+      "n": 51,
+      "n_rooms": 7,
+      "loro_coverage": 0.9215686274509803,
+      "loro_coverage_ci95": [
+        0.8111939930574618,
+        0.978216437943731
+      ],
+      "loro_median_halfwidth": 0.19729397788953967,
+      "loro_interval_score": 0.6519659526858063,
+      "loro_infinite_folds": 0,
+      "loro_per_room": {
+        "421337": 1.0,
+        "422813": 1.0,
+        "422829": 0.667,
+        "422851": 1.0,
+        "423448": 1.0,
+        "434641": 0.714,
+        "434650": 1.0
+      },
+      "raw_coverage": 0.3137254901960784,
+      "abs_err_median": 0.04781330693261099,
+      "width_to_error": 4.126340354738685
     }
   }
 }

@@ -14,7 +14,10 @@ Score (normalised, so intervals stay adaptive):
 Calibrated half-width = q * u, where q is the ceil((n+1)(1-alpha))-th smallest calibration score.
 
 Coverage is reported by leave-one-ROOM-out: captures of the same room are not exchangeable with each
-other, so a room's own repeat captures must not calibrate it.
+other, so a room's own repeat captures must not calibrate it. The quantile itself is room-level
+(pooled_q): each room has equal weight and the finite-sample correction counts rooms, not walls.
+Every coverage figure carries a Clopper-Pearson 95% interval; with 5-7 rooms it is wide, and that is
+the honest statement of what the benchmark can show.
 
 Quantities with ground truth: wall length, ceiling height. Areas inherit the wall-length multiplier
 through their raw error propagation. Opening dimensions have no ground truth in the laser data yet;
@@ -46,33 +49,119 @@ def conformal_q(scores: np.ndarray, level: float) -> float:
     return float(np.sort(scores)[k - 1])
 
 
+def pooled_q(scores: np.ndarray, rooms: np.ndarray, level: float) -> float:
+    """Room-weighted conformal quantile (CDF pooling, after Dunn, Wasserman & Ramdas, two-layer
+    hierarchical CP): every room gets equal total weight, so a room with many walls cannot dominate.
+
+    The finite-sample correction counts measurements (n), not rooms: a correction over rooms K needs
+    K >= 9 for any finite 90% interval, and the benchmark has 4-7 rooms. So the guarantee assumes
+    measurements are exchangeable across rooms; that assumption is checked, not assumed, by the
+    leave-one-room-out coverage and its Clopper-Pearson interval reported next to every fit."""
+    u = np.unique(rooms)
+    K, n = len(u), len(scores)
+    if K == 0:
+        return float("inf")
+    lvl = level * (1 + 1 / n)
+    if lvl > 1:
+        return float("inf")
+    w = np.array([1.0 / (K * (rooms == r).sum()) for r in rooms])
+    o = np.argsort(scores)
+    cw = np.cumsum(w[o])
+    return float(scores[o][min(np.searchsorted(cw, lvl - 1e-12), len(o) - 1)])
+
+
+def clopper_pearson(k: int, n: int, conf: float = 0.95) -> tuple[float, float]:
+    from scipy.stats import beta
+    a = (1 - conf) / 2
+    lo = 0.0 if k == 0 else float(beta.ppf(a, k, n - k + 1))
+    hi = 1.0 if k == n else float(beta.ppf(1 - a, k + 1, n - k))
+    return lo, hi
+
+
+def interval_score(lo: float, hi: float, y: float, alpha: float) -> float:
+    """Winkler / interval score (Gneiting & Raftery 2007): width + 2/alpha * miss distance."""
+    return (hi - lo) + 2 / alpha * max(lo - y, 0) + 2 / alpha * max(y - hi, 0)
+
+
+# training-conditional (PAC) margin: with ~5-7 calibration rooms one unlucky draw can undercover, and
+# overconfidence caps the score, so we calibrate at a slightly higher nominal level (Vovk 2012)
+PAC_MARGIN = 0.03
+
+
+def _scores(R: list[dict]) -> np.ndarray:
+    return np.array([abs(r["value"] - r["truth"]) / normaliser(r["value"], r["raw_half"]) for r in R])
+
+
+def _loro(R: list[dict], s: np.ndarray, rooms: np.ndarray, level: float, pool=None) -> dict:
+    """Leave-one-room-out: q from the other rooms (plus `pool` scores/rooms if given), tested on the left-out room."""
+    cov, wid, isc, inf_folds, per_room = [], [], [], 0, {}
+    alpha = 1 - level
+    for rm in np.unique(rooms):
+        tr_s, tr_r = s[rooms != rm], rooms[rooms != rm]
+        if pool is not None:
+            tr_s = np.r_[tr_s, pool[0][pool[1] != rm]]
+            tr_r = np.r_[tr_r, pool[1][pool[1] != rm]]
+        q = pooled_q(tr_s, tr_r, level)
+        if not math.isfinite(q):
+            inf_folds += 1
+            continue
+        c = []
+        for r, si in zip(np.array(R, dtype=object)[rooms == rm], s[rooms == rm]):
+            h = q * normaliser(r["value"], r["raw_half"])
+            c.append(si <= q)
+            wid.append(h)
+            isc.append(interval_score(r["value"] - h, r["value"] + h, r["truth"], alpha))
+        cov += c
+        per_room[str(rm)] = round(float(np.mean(c)), 3)
+    k, n = int(np.sum(cov)), len(cov)
+    return {"loro_coverage": (k / n) if n else None,
+            "loro_coverage_ci95": clopper_pearson(k, n) if n else None,
+            "loro_median_halfwidth": float(np.median(wid)) if wid else None,
+            "loro_interval_score": float(np.mean(isc)) if isc else None,
+            "loro_infinite_folds": inf_folds, "loro_per_room": per_room}
+
+
 def fit(records: list[dict], level: float = 0.9) -> dict:
-    """records: {tier, kind, room, value, truth, raw_half}. Returns {tier: {kind: {...}}}."""
+    """records: {tier, kind, room, value, truth, raw_half}. Returns {tier: {kind: {...}}}.
+
+    Quantities with too few rooms for a finite room-level quantile (ceiling heights: one per room) are
+    pooled with the tier's wall lengths through the shared normalised score; this is used only if
+    leave-one-room-out coverage of that quantity still reaches the target, and is labelled."""
     out: dict = {}
+    nominal = min(level + PAC_MARGIN, 0.99)
     for tier in sorted({r["tier"] for r in records}):
         out[tier] = {}
-        for kind in sorted({r["kind"] for r in records if r["tier"] == tier}):
-            R = [r for r in records if r["tier"] == tier and r["kind"] == kind]
-            s = np.array([abs(r["value"] - r["truth"]) / normaliser(r["value"], r["raw_half"]) for r in R])
-            rooms = np.array([r["room"] for r in R])
-            # leave-one-room-out coverage and width
-            cov, wid, inf_folds = [], [], 0
-            for rm in np.unique(rooms):
-                q = conformal_q(s[rooms != rm], level)
-                if not math.isfinite(q):          # too few held-in points for a finite interval
-                    inf_folds += 1
-                    continue
-                for r, si in zip(np.array(R, dtype=object)[rooms == rm], s[rooms == rm]):
-                    cov.append(si <= q)
-                    wid.append(q * normaliser(r["value"], r["raw_half"]) if math.isfinite(q) else float("inf"))
+        TR = [r for r in records if r["tier"] == tier]
+        W = [r for r in TR if r["kind"] == "wall_length"]
+        sW, rW = _scores(W), np.array([r["room"] for r in W])
+        for kind in sorted({r["kind"] for r in TR}):
+            R = [r for r in TR if r["kind"] == kind]
+            s, rooms = _scores(R), np.array([r["room"] for r in R])
+            # fallbacks, each labelled: drop the PAC margin; then the highest level n allows; only then
+            # pool with wall lengths (valid, but the wall tail makes such intervals far too wide)
+            lvl_used, method = nominal, "room-pooled"
+            q = pooled_q(s, rooms, nominal)
+            if not math.isfinite(q):
+                lvl_used, method, q = level, "room-pooled, no PAC margin (n too small)", pooled_q(s, rooms, level)
+            if not math.isfinite(q) and len(R) >= 2:
+                lvl_used = len(R) / (len(R) + 1) * 0.999
+                method, q = f"room-pooled, level reduced to {len(R) / (len(R) + 1):.3f} (n={len(R)})", pooled_q(s, rooms, lvl_used)
+            lo = _loro(R, s, rooms, lvl_used)
+            if not math.isfinite(q) and kind != "wall_length" and len(W):
+                lp = _loro(R, s, rooms, nominal, pool=(sW, rW))
+                if lp["loro_coverage"] is not None and lp["loro_coverage"] >= level:
+                    q, lvl_used = pooled_q(np.r_[s, sW], np.r_[rooms, rW], nominal), nominal
+                    method, lo = "room-pooled, shared with wall_length (too few rooms alone)", lp
             raw_cov = np.mean([abs(r["value"] - r["truth"]) <= r["raw_half"] for r in R])
+            err = np.array([abs(r["value"] - r["truth"]) for r in R])
             out[tier][kind] = {
-                "q": conformal_q(s, level), "level": level, "n": len(R), "n_rooms": int(len(np.unique(rooms))),
-                "loro_coverage": float(np.mean(cov)) if cov else None,
-                "loro_median_halfwidth": float(np.median(wid)) if wid else None,
-                "loro_infinite_folds": inf_folds,
+                "q": q, "level": round(min(lvl_used, level), 4), "nominal_level": round(lvl_used, 4), "method": method,
+                "n": len(R), "n_rooms": int(len(np.unique(rooms))),
+                **lo,
                 "raw_coverage": float(raw_cov),
-                "abs_err_median": float(np.median([abs(r["value"] - r["truth"]) for r in R])),
+                "abs_err_median": float(np.median(err)),
+                "width_to_error": (lo["loro_median_halfwidth"] / max(float(np.median(err)), 1e-6))
+                if lo["loro_median_halfwidth"] else None,
             }
     return out
 
