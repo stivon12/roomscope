@@ -193,55 +193,30 @@ def to_capture(views: list[dict], timestamps: np.ndarray, root: Path, pixel_stri
 
 
 
-def sfm_poses(image_paths: list[Path], work: Path, K: np.ndarray | None, sequential: bool) -> dict[str, np.ndarray]:
-    """Classical SfM (COLMAP via pycolmap, CPU): SIFT, matching, incremental mapping with bundle adjustment.
-    Returns {image name: 4x4 camera->world (OpenCV), up to an unknown global scale} for the largest
-    reconstruction. MapAnything's poses are not globally consistent enough to fuse (per-view scale +-10%,
-    floors smeared over ~0.9 m on 42444946); bundle-adjusted SfM poses are."""
+def sfm_poses(image_paths: list[Path], work: Path, K: np.ndarray | None, overlap: int = 15) -> dict:
+    """Classical SfM (COLMAP, SIFT, sequential matching, fixed known pinhole camera) on dense frames.
+    Runs in a subprocess (frontends/sfm_worker.py): pycolmap and torch cannot share a process on macOS.
+    Returns {image name: {"pose": 4x4 camera->world (OpenCV, arbitrary scale), "obs": [(xy, XYZ), ...]}}
+    for the largest reconstruction. MapAnything's own poses are not consistent enough to fuse (floors
+    smeared over ~0.9 m on 42444946); bundle-adjusted SfM poses are."""
+    import json
     import shutil
+    import subprocess
+    import sys
 
-    import pycolmap
     work = Path(work)
-    shutil.rmtree(work, ignore_errors=True)
     img_dir = work / "images"
+    shutil.rmtree(img_dir, ignore_errors=True)
     img_dir.mkdir(parents=True)
     for p in image_paths:
         shutil.copy(p, img_dir / p.name)
-    db = work / "database.db"
-    ro = pycolmap.ImageReaderOptions()
+    cmd = [sys.executable, "-m", "roomscope.frontends.sfm_worker", str(img_dir), str(work), "--overlap", str(overlap)]
     if K is not None:
-        ro.camera_model = "PINHOLE"
-        ro.camera_params = f"{K[0, 0]},{K[1, 1]},{K[0, 2]},{K[1, 2]}"
-    pycolmap.extract_features(db, img_dir, camera_mode=pycolmap.CameraMode.SINGLE, reader_options=ro,
-                              device=pycolmap.Device.cpu)
-    if sequential:
-        po = pycolmap.SequentialPairingOptions()
-        po.overlap = 12
-        pycolmap.match_sequential(db, pairing_options=po, device=pycolmap.Device.cpu)
-    else:
-        pycolmap.match_exhaustive(db, device=pycolmap.Device.cpu)
-    opts = pycolmap.IncrementalPipelineOptions()
-    if K is not None:
-        opts.mapper.abs_pose_refine_focal_length = False
-        opts.mapper.abs_pose_refine_extra_params = False
-        opts.ba_refine_focal_length = False
-        opts.ba_refine_principal_point = False
-        opts.ba_refine_extra_params = False
-    recs = pycolmap.incremental_mapping(db, img_dir, work / "sparse", options=opts)
-    if not recs:
-        return {}
-    rec = max(recs.values(), key=lambda r: r.num_reg_images())
-    out = {}
-    for img in rec.images.values():
-        if not (img.has_pose() if callable(img.has_pose) else img.has_pose):
-            continue
-        cfw = img.cam_from_world() if callable(img.cam_from_world) else img.cam_from_world
-        M = np.eye(4)
-        M[:3, :4] = cfw.matrix()
-        Twc = np.linalg.inv(M)
-        pts = [(p.xy, rec.points3D[p.point3D_id].xyz) for p in img.points2D if p.has_point3D()]
-        out[img.name] = {"pose": Twc, "obs": pts}
-    return out
+        cmd += ["--K", *(f"{v:.4f}" for v in (K[0, 0], K[1, 1], K[0, 2], K[1, 2]))]
+    subprocess.run(cmd, check=True)
+    raw = json.loads((work / "sfm.json").read_text())
+    return {nm: {"pose": np.asarray(r["pose"]), "obs": [(np.array(o[:2]), np.array(o[2:])) for o in r["obs"]]}
+            for nm, r in raw.items()}
 
 
 def fuse_sfm_depth(views: list[dict], names: list[str], sfm: dict, image_sizes: list[tuple[int, int]],

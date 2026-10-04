@@ -14,7 +14,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .recon import run_mapanything, to_capture
+from .recon import fuse_sfm_depth, run_mapanything, sfm_poses, to_capture
 
 VIDEO_EXT = {".mov", ".mp4", ".m4v", ".avi"}
 
@@ -124,8 +124,40 @@ def extract_keyframes(video: Path, out_dir: Path, n: int = 32, long_side: int = 
     return paths, np.asarray(ts)
 
 
-def load_video(path: Path, work_dir: Path, n_frames: int = 32, scale: float = 1.0):
+def load_video(path: Path, work_dir: Path, n_frames: int = 32, scale: float = 1.0, method: str = "mapanything",
+               n_dense: int = 200):
+    """method="sfm" (opt-in, NOT default: see below): COLMAP poses on n_dense frames (SIFT, sequential matching, known K fixed),
+    MapAnything dense depth on n_frames of the registered frames, fused (recon.fuse_sfm_depth): SfM
+    fixes MapAnything's inconsistent poses, MapAnything supplies metric depth and scale.
+    method="mapanything" (default): MapAnything alone on n_frames keyframes.
+
+    Why sfm is not the default (42444946, 2026-10-04): with sensitive SIFT COLMAP registers 93/200
+    (incremental) or 157/200 (global) frames, but every camera gets the same projection centre: the
+    walk is reconstructed as a pure-rotation panorama (most pairs are classified planar/panoramic:
+    low-texture walls seen up close). Checked against ARKit's trajectory (9.5 m path): Sim3 ATE
+    41-63 cm. Fused output: ceiling 2.67 vs 3.06 m. Research on the degeneracy is pending."""
+    import json
     video = find_video(path)
-    paths, ts = extract_keyframes(video, Path(work_dir) / "frames", n=n_frames)
-    views = run_mapanything(paths, cache=Path(work_dir) / "cache")
+    work_dir = Path(work_dir)
+    if method == "sfm":
+        dense, ts_d = extract_keyframes(video, work_dir / "frames_dense", n=n_dense, long_side=1024)
+        Ks = json.loads((work_dir / "frames_dense" / "intrinsics.json").read_text()) \
+            if (work_dir / "frames_dense" / "intrinsics.json").exists() else {}
+        K = np.asarray(Ks[dense[0].name]) if dense and dense[0].name in Ks else None
+        sfm = sfm_poses(dense, work_dir / "sfm", K)
+        reg = [i for i, p in enumerate(dense) if p.name in sfm]
+        print(f"SfM registered {len(reg)}/{len(dense)} frames")
+        if len(reg) >= 8:
+            pick = [reg[int(round(j))] for j in np.linspace(0, len(reg) - 1, min(n_frames, len(reg)))]
+            paths = [dense[i] for i in pick]
+            views = run_mapanything(paths, cache=work_dir / "cache")
+            sizes = [cv2.imread(str(p)).shape[1::-1] for p in paths]
+            Kk = [np.asarray(Ks[p.name]) if p.name in Ks else None for p in paths]
+            fused, kept, diag = fuse_sfm_depth(views, [p.name for p in paths], sfm, sizes, Kk)
+            print("fusion:", diag)
+            if len(fused) >= 8:
+                return to_capture(fused, ts_d[pick][kept], Path(path), scale=scale)
+        print("SfM too sparse; falling back to MapAnything alone")
+    paths, ts = extract_keyframes(video, work_dir / "frames", n=n_frames)
+    views = run_mapanything(paths, cache=work_dir / "cache")
     return to_capture(views, ts, Path(path), scale=scale)
