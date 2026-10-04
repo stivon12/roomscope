@@ -44,7 +44,11 @@ def run(image_dir: Path, work: Path, K: list[float] | None, overlap: int = 15, m
     po = pycolmap.SequentialPairingOptions()
     po.overlap = overlap
     po.quadratic_overlap = True
-    pycolmap.match_sequential(db, pairing_options=po, device=pycolmap.Device.cpu)
+    v = pycolmap.TwoViewGeometryOptions()
+    for name, val in (("use_degensac", True), ("compute_relative_pose", True), ("detect_watermark", False)):
+        if hasattr(v, name):          # DEGENSAC (4.2+) is meant for plane-dominated scenes
+            setattr(v, name, val)
+    pycolmap.match_sequential(db, pairing_options=po, verification_options=v, device=pycolmap.Device.cpu)
     if mapper == "global":           # GLOMAP: rotation averaging first, robust to small baselines
         g = pycolmap.GlobalPipelineOptions()
         if K is not None:
@@ -55,6 +59,12 @@ def run(image_dir: Path, work: Path, K: list[float] | None, overlap: int = 15, m
     else:
         opts = pycolmap.IncrementalPipelineOptions()
         opts.mapper.init_min_tri_angle = init_tri_angle   # default 16 deg; a handheld room scan turns more than it moves
+        if hasattr(opts, "structure_less_registration_fallback"):
+            # COLMAP 4.0 default True: registers images from 2D-2D relative pose without 3D points; with weak
+            # translation (planar/panoramic pairs) it stacked all cameras on one centre on 42444946
+            opts.structure_less_registration_fallback = False
+        opts.mapper.abs_pose_refine_focal_length = False
+        opts.mapper.abs_pose_refine_extra_params = False
         if K is not None:
             opts.ba_refine_focal_length = False
             opts.ba_refine_principal_point = False

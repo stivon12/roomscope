@@ -89,6 +89,9 @@ def make(scene: Path, n: int = 8, long_side: int = 1920) -> Path:
     cap.release()
     if Ks:
         (room / "intrinsics.json").write_text(json.dumps(Ks, indent=1))
+    # provenance for evaluation only (out/, never read by the pipeline): source frame and trajectory time
+    (out / "sources.json").write_text(json.dumps({f"photo_{k:02d}.jpg": {"frame": i, "t": t0 + i / fps}
+                                                  for k, i in enumerate(sorted(picks))}, indent=1))
     return out
 
 
