@@ -135,10 +135,18 @@ def _manhattan_up(normals: np.ndarray, cams: np.ndarray, up_prior: np.ndarray | 
     a3 = np.cross(a1, a2)
     axes = [a1, a2, a3]
     if up_prior is not None:
-        # upright phone images: the cameras' own up directions average to gravity; snap to the nearest
-        # Manhattan axis so walls end up exactly vertical
-        k = int(np.argmax([abs(a @ up_prior) for a in axes]))
-        return axes[k] * np.sign(axes[k] @ up_prior)
+        # upright phone images: the cameras' mean up is gravity give or take the typical downward pitch
+        # (up to ~30 deg). Refine on the floor/ceiling normals near it: principal direction of normals
+        # within 35 deg of the current estimate, a few times. Snapping straight to a Manhattan axis from
+        # the full normal scatter left a 27 deg tilt on 42444946.
+        up = up_prior / np.linalg.norm(up_prior)
+        for cone in (35, 25, 15, 10):
+            sel = np.abs(N @ up) > np.cos(np.deg2rad(cone))
+            if sel.sum() < 500:
+                break
+            w_, V_ = np.linalg.eigh(N[sel].T @ N[sel])
+            up = V_[:, -1] * np.sign(V_[:, -1] @ up)
+        return up
     c = cams - cams.mean(0)
     up = axes[int(np.argmin([np.var(c @ a) for a in axes]))]
     # sign: more surface facing up (floor) than facing down (ceiling)
@@ -182,3 +190,115 @@ def to_capture(views: list[dict], timestamps: np.ndarray, root: Path, pixel_stri
     poses = np.einsum("ij,fjk->fik", G, poses)
     K = views[0]["K"].astype(np.float64)
     return LidarCapture(pts, nrms, poses, K, np.asarray(timestamps, float), Path(root), align=G)
+
+
+
+def sfm_poses(image_paths: list[Path], work: Path, K: np.ndarray | None, sequential: bool) -> dict[str, np.ndarray]:
+    """Classical SfM (COLMAP via pycolmap, CPU): SIFT, matching, incremental mapping with bundle adjustment.
+    Returns {image name: 4x4 camera->world (OpenCV), up to an unknown global scale} for the largest
+    reconstruction. MapAnything's poses are not globally consistent enough to fuse (per-view scale +-10%,
+    floors smeared over ~0.9 m on 42444946); bundle-adjusted SfM poses are."""
+    import shutil
+
+    import pycolmap
+    work = Path(work)
+    shutil.rmtree(work, ignore_errors=True)
+    img_dir = work / "images"
+    img_dir.mkdir(parents=True)
+    for p in image_paths:
+        shutil.copy(p, img_dir / p.name)
+    db = work / "database.db"
+    ro = pycolmap.ImageReaderOptions()
+    if K is not None:
+        ro.camera_model = "PINHOLE"
+        ro.camera_params = f"{K[0, 0]},{K[1, 1]},{K[0, 2]},{K[1, 2]}"
+    pycolmap.extract_features(db, img_dir, camera_mode=pycolmap.CameraMode.SINGLE, reader_options=ro,
+                              device=pycolmap.Device.cpu)
+    if sequential:
+        po = pycolmap.SequentialPairingOptions()
+        po.overlap = 12
+        pycolmap.match_sequential(db, pairing_options=po, device=pycolmap.Device.cpu)
+    else:
+        pycolmap.match_exhaustive(db, device=pycolmap.Device.cpu)
+    opts = pycolmap.IncrementalPipelineOptions()
+    if K is not None:
+        opts.mapper.abs_pose_refine_focal_length = False
+        opts.mapper.abs_pose_refine_extra_params = False
+        opts.ba_refine_focal_length = False
+        opts.ba_refine_principal_point = False
+        opts.ba_refine_extra_params = False
+    recs = pycolmap.incremental_mapping(db, img_dir, work / "sparse", options=opts)
+    if not recs:
+        return {}
+    rec = max(recs.values(), key=lambda r: r.num_reg_images())
+    out = {}
+    for img in rec.images.values():
+        if not (img.has_pose() if callable(img.has_pose) else img.has_pose):
+            continue
+        cfw = img.cam_from_world() if callable(img.cam_from_world) else img.cam_from_world
+        M = np.eye(4)
+        M[:3, :4] = cfw.matrix()
+        Twc = np.linalg.inv(M)
+        pts = [(p.xy, rec.points3D[p.point3D_id].xyz) for p in img.points2D if p.has_point3D()]
+        out[img.name] = {"pose": Twc, "obs": pts}
+    return out
+
+
+def fuse_sfm_depth(views: list[dict], names: list[str], sfm: dict, image_sizes: list[tuple[int, int]],
+                   K_known: list[np.ndarray | None]) -> tuple[list[dict], list[int], dict]:
+    """SfM poses + MapAnything dense depth.
+    - rays: known intrinsics when given (MapAnything largely ignores the intrinsics input), else the
+      model's own rays;
+    - per-view depth scale k_i = median(SfM depth / MapAnything depth) over the view's triangulated
+      SIFT points, which removes MapAnything's per-view scale scatter;
+    - global metric scale: median of MapAnything / SfM depth over all those points (MapAnything is
+      metric; on 42444946 its depth was 4% short of LiDAR). Calibration then measures what remains.
+    Returns the fused views (OpenCV camera frame, metric), the indices kept, and diagnostics."""
+    out, kept, ratios = [], [], []
+    per_view = {}
+    for i, (v, nm) in enumerate(zip(views, names)):
+        if nm not in sfm:
+            continue
+        H, W = v["pts_cam"].shape[:2]
+        W0, H0 = image_sizes[i]
+        sc = W / W0                                     # resize to model width, centre crop in height
+        oy = (H0 * sc - H) / 2
+        d_ma = np.linalg.norm(v["pts_cam"], axis=-1)    # depth along ray
+        T = sfm[nm]["pose"]
+        Tinv = np.linalg.inv(T)
+        zs, zm = [], []
+        for xy, X in sfm[nm]["obs"]:
+            u, vv = xy[0] * sc, xy[1] * sc - oy
+            iu, iv = int(u), int(vv)
+            if not (0 <= iu < W and 0 <= iv < H) or not v["mask"][iv, iu]:
+                continue
+            Xc = Tinv[:3, :3] @ X + Tinv[:3, 3]
+            if Xc[2] <= 0:
+                continue
+            zs.append(np.linalg.norm(Xc)); zm.append(d_ma[iv, iu])
+        if len(zs) < 20:
+            continue
+        r = np.array(zs) / np.array(zm)
+        k = float(np.median(r))
+        per_view[nm] = (k, len(zs), float(np.median(np.abs(r / k - 1))))
+        ratios += list(np.array(zm) / np.array(zs))
+        if K_known[i] is not None:
+            Kk = K_known[i].copy(); Kk[:2] *= sc; Kk[1, 2] -= oy
+        else:
+            Kk = v["K"]
+        uu, vg = np.meshgrid(np.arange(W) + 0.5, np.arange(H) + 0.5)
+        ray = np.stack([(uu - Kk[0, 2]) / Kk[0, 0], (vg - Kk[1, 2]) / Kk[1, 1], np.ones_like(uu)], -1)
+        ray /= np.linalg.norm(ray, axis=-1, keepdims=True)
+        out.append({"pts_cam": ray * (d_ma * k)[..., None], "pose": T.copy(), "K": Kk, "mask": v["mask"],
+                    "conf": v.get("conf")})
+        kept.append(i)
+    if not out:
+        return [], [], {"registered": 0}
+    s = float(np.median(ratios))                         # SfM units -> metres
+    for o in out:
+        o["pts_cam"] = o["pts_cam"] * s
+        o["pose"][:3, 3] *= s
+    diag = {"registered": len(out), "of": len(views), "metric_scale_from_mapanything": s,
+            "per_view_scale_spread": float(np.std([np.log(k) for k, _, _ in per_view.values()])),
+            "median_view_residual": float(np.median([e for _, _, e in per_view.values()]))}
+    return out, kept, diag
