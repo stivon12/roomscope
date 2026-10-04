@@ -392,14 +392,41 @@ def room_polygon(mask: np.ndarray, g: Grid2, walls: list[WallPlane]):
         last = merged.pop()
         if merged[0].plane is None or (last.plane is not None and last.plane.n > merged[0].plane.n):
             merged[0] = last
+    def corners_of(es):
+        out = []
+        for k in range(len(es)):
+            a, b = es[k - 1], es[k]
+            out.append((a.c if a.axis == 0 else b.c, a.c if a.axis == 1 else b.c))
+        return out
+
+    def better(a: Edge, b: Edge) -> Edge:
+        if a.plane is None:
+            return b
+        if b.plane is None:
+            return a
+        return a if a.plane.n >= b.plane.n else b
+
+    # Remove degenerate edges: zero-length ones (two edges snapped onto the same wall line) and short
+    # unsnapped notches (floor-boundary artefacts of furniture, not walls). Removing edge k makes its two
+    # neighbours (same axis, since edges alternate) adjacent; merge them and recompute the corners.
+    while len(merged) >= 4:
+        cs = corners_of(merged)
+        n = len(merged)
+        lens = [np.hypot(cs[(k + 1) % n][0] - cs[k][0], cs[(k + 1) % n][1] - cs[k][1]) for k in range(n)]
+        bad = [k for k in range(n) if lens[k] < 0.08 or (merged[k].plane is None and lens[k] < 0.3)]
+        if not bad:
+            break
+        k = min(bad, key=lambda i: lens[i])
+        a, b = merged[k - 1], merged[(k + 1) % n]
+        keep = better(a, b)
+        idx = sorted({(k - 1) % n, k, (k + 1) % n})
+        new = [e for i, e in enumerate(merged) if i not in idx]
+        insert_at = min(idx) if not (0 in idx and n - 1 in idx) else 0
+        new.insert(min(insert_at, len(new)), keep)
+        merged = new
     if len(merged) < 4:
         return None
-    corners = []
-    for k in range(len(merged)):
-        a, b = merged[k - 1], merged[k]
-        x = a.c if a.axis == 0 else b.c
-        y = a.c if a.axis == 1 else b.c
-        corners.append((x, y))
+    corners = corners_of(merged)
     # corner k is where edge k-1 meets edge k, so edge k runs corner k -> corner k+1
     walls_e = merged
     P = Polygon(corners)

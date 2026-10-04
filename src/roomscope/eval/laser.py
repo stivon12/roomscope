@@ -276,3 +276,44 @@ def summarise(sc: dict) -> str:
     return (f"ceiling  {stat(sc['ceil'])}\n"
             f"walls    {stat(sc['walls'])}\n"
             f"planes   {stat(sc['wall_planes'], 'offset_err')}")
+
+
+def score_capture(out_dir: Path, scene_root: Path) -> dict:
+    """Score pipeline output in out_dir (result.json + cloud.npz) against the scene's laser reference."""
+    import json
+
+    out_dir, scene_root = Path(out_dir), Path(scene_root)
+    result = json.loads((out_dir / "result.json").read_text())
+    cl = np.load(out_dir / "cloud.npz")
+    P, N = cl["P"].astype(np.float64), cl["N"].astype(np.float64)
+    laser_dir = find_laser_dir(scene_root)
+    if laser_dir is not None:
+        ref = load_laser(laser_dir)
+        T, fit = register_to(ref, P, N)
+        source = f"faro:{laser_dir.name}"
+    else:
+        ref = load_highres_reference(scene_root)
+        T, fit = refine_registration(ref, P, N, cl["T_world_to_result"])
+        source = "highres_depth (Faro mesh rendered at ARKit poses)"
+    ref.transform(T)
+    # keep the part of the venue the capture actually covers (laser scans span the whole visit)
+    lo, hi = P.min(0) - 0.5, P.max(0) + 0.5
+    Lp = np.asarray(ref.points)
+    ref = ref.select_by_index(np.where(np.all((Lp > lo) & (Lp < hi), axis=1))[0])
+    planes = extract_planes(ref)
+    sc = score_result(result, planes, ref)
+    sc.update({"reference": source, "icp_fitness": fit, "n_ref_planes": len(planes),
+               "drift": result["meta"]["drift_correction"]})
+    return sc
+
+
+if __name__ == "__main__":
+    import sys
+
+    s = score_capture(Path(sys.argv[1]), Path(sys.argv[2]))
+    print(f"reference={s['reference']} icp_fitness={s['icp_fitness']:.3f} planes={s['n_ref_planes']}")
+    print(summarise(s))
+    if "-v" in sys.argv:
+        for k in ("ceil", "walls", "wall_planes"):
+            for r in s[k]:
+                print(k, r)
