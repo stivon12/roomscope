@@ -105,7 +105,7 @@ def score():
                 continue
             res = json.loads((d / "result.json").read_text())
             rec.update(status="ok", rooms=len(res["rooms"]), dir=str(d.relative_to(ROOT)),
-                       stitch=res["footprint"]["stitch_status"])
+                       stitch=res["footprint"]["stitch_status"], runtime_s=res["meta"]["runtime_s"])
             try:
                 sc = score_one(e, d)
             except Exception as ex:
@@ -144,6 +144,7 @@ def score():
     # G.3 repeatability: matched walls of repeat captures agree within max(1 cm, 0.5 %)
     rep = []
     rep_detail = []
+    rep_rows = []
     for tier in ("lidar", "video", "photo"):
         by = {}
         for r in ok:
@@ -157,6 +158,7 @@ def score():
                     rep_detail.append(f"{tier} {a['id']}/{b['id']}: {type(ex).__name__}")
                     continue
                 ws = [w for rm in cmp["matched_rooms"] for w in rm["walls"]]
+                rep_rows.append((tier, a["id"], b["id"], ws, cmp["summary"]))
                 for w in ws:
                     rep.append((tier, abs(w["diff"]) <= max(0.01, 0.005 * max(w["a"], w["b"]))))
                 rep_detail.append(f"{tier} {a['id']}/{b['id']}: {len(ws)} walls matched, rooms unmatched "
@@ -194,11 +196,20 @@ def score():
         m = "not measurable" if g["rate"] is None and g["n"] in (0, None) else (
             f"{g['pass']}/{g['n']} = {g['rate']:.2f}" if g["rate"] is not None else "see detail")
         lines.append(f"| {g['id']} {g['gate']} | {m} | {g['target'] if g['target'] is not None else '-'} | {g['detail']} |")
-    lines += ["", "## Runs", "", "| capture | tier | status | rooms | clean walls | step walls | unscored edges |",
-              "|---|---|---|---|---|---|---|"]
+    lines += ["", "## Repeatability (same room, same tier)", "",
+              "| tier | captures | walls matched | within max(1 cm, 0.5 %) | median abs. length diff | ceiling diff |",
+              "|---|---|---|---|---|---|"]
+    for tier, ia, ib, ws, summ in rep_rows:
+        ok_w = sum(abs(w["diff"]) <= max(0.01, 0.005 * max(w["a"], w["b"])) for w in ws)
+        md = f"{100 * np.median([abs(w['diff']) for w in ws]):.1f} cm" if ws else "-"
+        ch = summ.get("ceiling_height", {}).get("median_abs_diff")
+        lines.append(f"| {tier} | {ia} / {ib} | {len(ws)} | {ok_w} | {md} | {'-' if ch is None else f'{100 * ch:.1f} cm'} |")
+    lines += ["", "## Runs and timing (M1, 16 GB)", "",
+              "| capture | tier | status | rooms | clean walls | step walls | unscored edges | runtime |",
+              "|---|---|---|---|---|---|---|---|"]
     for r in recs:
         lines.append(f"| {r['id']} | {r['tier']} | {r['status'][:60]} | {r.get('rooms', '')} | {len(r.get('walls', []))} | "
-                     f"{len(r.get('walls_step', []))} | {r.get('unscored', '')} |")
+                     f"{len(r.get('walls_step', []))} | {r.get('unscored', '')} | {r.get('runtime_s', '')} s |")
     (RES / "gates.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines[:len(gates) + 6]))
 
