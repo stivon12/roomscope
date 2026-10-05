@@ -4,7 +4,7 @@ Status: ✅ done and verified · 🟡 partial · ⬜ not started · ❌ known fa
 
 | # | Requirement | File path | Artifact | Status |
 |---|---|---|---|---|
-| 1.1 | Capture route: stock protocol (Route 2) | `docs/PROTOCOL.md` | one-page protocol | ✅ Camera app (photo, video) + Stray Scanner (LiDAR); hand-off steps included |
+| 1.1 | Capture route: stock protocol (Route 2) | `CAPTURE_PROTOCOL.md` | one-page protocol | ✅ Camera app (photo, video) + Stray Scanner (LiDAR); hand-off steps included |
 | 1.2 | Photo tier: 2–8 stills per room, per-room folders, stitched plan | `src/roomscope/frontends/photo.py`, `src/roomscope/core/stitch.py` | `out/<cap>/result.json` | 🟡 runs on every benchmark capture (diagonal-outline crash fixed, 7ebd9cf); multi-room stitch does not connect rooms (G.5) |
 | 1.3 | Video tier: handheld walkthrough | `src/roomscope/frontends/video.py`, `recon.py` | `out/<cap>/result.json` | 🟡 runs on single rooms; multi-room walk keeps one COLMAP piece ❌ |
 | 1.4 | LiDAR tier | `src/roomscope/frontends/lidar.py` | `out/<cap>/result.json` | ✅ Stray (own iPhone Pro, MuSHRoom iPhone) and ARKitScenes |

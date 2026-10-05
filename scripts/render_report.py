@@ -1,6 +1,11 @@
-"""Render TECHNICAL_REPORT.md to TECHNICAL_REPORT.pdf (A4) with headless Chrome: python scripts/render_report.py"""
+"""Render a Markdown document at the repo root to a PDF beside it (A4, headless Chrome).
+
+    python scripts/render_report.py                         # TECHNICAL_REPORT.md -> TECHNICAL_REPORT.pdf
+    python scripts/render_report.py CAPTURE_PROTOCOL.md --compact   # one-page protocol
+"""
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import markdown
@@ -28,11 +33,16 @@ def prepare(md: str) -> str:
     return "\n".join(out)
 
 
-html = markdown.markdown(prepare((ROOT / "TECHNICAL_REPORT.md").read_text()), extensions=["tables"])
-(ROOT / "TECHNICAL_REPORT.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>roomscope technical report</title>"
-                                       f"<style>{CSS}</style></head><body>{html}</body></html>")
+src = ROOT / (sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("--") else "TECHNICAL_REPORT.md")
+css = CSS
+if "--compact" in sys.argv:          # the capture protocol must fit one page
+    css += """@page { margin: 9mm 11mm; } body { font-size: 8.6pt; line-height: 1.24; } h1 { font-size: 13pt; margin: 0 0 3px; }
+h2 { font-size: 10pt; margin: 6px 0 2px; } p, li { margin: 1px 0; } ul, ol { margin: 1px 0 2px 16px; } pre { margin: 2px 0; font-size: 8pt; }"""
+html = markdown.markdown(prepare(src.read_text()), extensions=["tables", "fenced_code"])
+tmp = src.with_suffix(".html")
+tmp.write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>{src.stem}</title><style>{css}</style></head><body>{html}</body></html>")
 chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 subprocess.run([chrome, "--headless", "--disable-gpu", "--no-pdf-header-footer",
-                f"--print-to-pdf={ROOT / 'TECHNICAL_REPORT.pdf'}", str(ROOT / "TECHNICAL_REPORT.html")], check=True,
-               stderr=subprocess.DEVNULL)
-print("wrote TECHNICAL_REPORT.pdf")
+                f"--print-to-pdf={src.with_suffix('.pdf')}", str(tmp)], check=True, stderr=subprocess.DEVNULL)
+tmp.unlink()
+print(f"wrote {src.with_suffix('.pdf').name}")

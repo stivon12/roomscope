@@ -46,7 +46,7 @@ intervals then carry that difference.
 | | Photo | Video | LiDAR |
 |---|---|---|---|
 | Hardware | any iPhone 15+ | any iPhone 15+ | iPhone Pro (LiDAR) |
-| Capture (`docs/PROTOCOL.md`) | Camera app, 2–8 photos per room, one folder per room | Camera app, one walkthrough | Stray Scanner (free), one recording through all rooms |
+| Capture (`CAPTURE_PROTOCOL.md`) | Camera app, 2–8 photos per room, one folder per room | Camera app, one walkthrough | Stray Scanner (free), one recording through all rooms |
 | Poses / scale from | DA3 multi-view / DA3-Metric | COLMAP / DA3-Metric | ARKit / LiDAR depth |
 | Ceiling vs laser | 7–28 cm off on 3 rooms | 8–28 cm off (3–12 %) on 4 | **4/4 within 1.5 cm** (median 0.9 cm); repeat spread 0.4–0.6 cm |
 | Wall length vs laser | too few clean walls to state | too few clean walls to state | median 8.7 cm on 21 walls (wider ARKitScenes set) |

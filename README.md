@@ -11,6 +11,8 @@ One command per capture, three capture tiers sharing one output contract (`schem
 
 **[Technical report](TECHNICAL_REPORT.md)** ([PDF](TECHNICAL_REPORT.pdf)): architecture, tiers and device matrix, drift, error budget, calibration, fix loop, failure modes.
 
+**[Capture protocol](CAPTURE_PROTOCOL.md)** ([PDF](CAPTURE_PROTOCOL.pdf)): the one-page guide for capturing a space at each tier.
+
 Per-tier accuracy is in `docs/DEVICE_MATRIX.md`, gates on the benchmark set in `bench/results/gates.md`, the compliance matrix in `docs/COMPLIANCE.md` and the fix loop in `fix/`.
 
 ## Install (macOS Apple Silicon or Linux, Python 3.11+, one environment)
@@ -38,7 +40,7 @@ The old MapAnything path (`ROOMSCOPE_RECON=mapanything`) is optional: clone and 
 
 ## Capture
 
-Follow `docs/PROTOCOL.md` (one page): stock Camera app for photos and video, Stray Scanner for LiDAR.
+Follow the [capture protocol](CAPTURE_PROTOCOL.md) ([PDF](CAPTURE_PROTOCOL.pdf), one page): stock Camera app for photos and video, Stray Scanner for LiDAR.
 
 ## Run
 
@@ -85,7 +87,7 @@ src/roomscope/core/        layout.py (planes, rooms, polygons)  drift.py  depth_
 src/roomscope/eval/        laser.py (Faro scoring)  depth_bias.py  pose_drift.py
 bench/                     benchmark, calibration, ablation and fix-loop scripts
 config/                    depth_scale.yaml  calibration.json
-docs/                      PROTOCOL.md  COMPLIANCE.md  DIAGNOSTICS.md  RESEARCH.md
+docs/                      COMPLIANCE.md  DEVICE_MATRIX.md  DIAGNOSTICS.md  RESEARCH.md
 fix/                       DECLARATION.md  before_after.md
 ```
 

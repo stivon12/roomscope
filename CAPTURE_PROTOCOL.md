@@ -1,4 +1,4 @@
-# Capture protocol (one page) — v0
+# Capture Protocol
 
 **You need:** an iPhone 15 or newer. For the LiDAR tier, an iPhone **Pro** (15 Pro / 16 Pro / 17 Pro).
 **Before you start:** turn on all the lights and open the blinds. Open every interior door fully. Lens clean. Battery > 30 %.
