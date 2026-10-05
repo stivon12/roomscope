@@ -69,7 +69,9 @@ def _read_odometry(csv_path: Path) -> dict[str, np.ndarray]:
     v1.3+ adds per-frame fx, fy, cx, cy (+ distortion centre); older exports have 9 columns."""
     lines = csv_path.read_text().strip().splitlines()
     names = [h.strip() for h in lines[0].split(",")]
-    data = np.array([[float(v) for v in ln.split(",")] for ln in lines[1:] if ln.strip()], ndmin=2)
+    # real exports leave the distortion-centre columns empty (", ,"): read those as NaN
+    data = np.array([[float(v) if v.strip() else np.nan for v in ln.split(",")] for ln in lines[1:] if ln.strip()],
+                    ndmin=2)
     return {n: data[:, i] for i, n in enumerate(names)}
 
 

@@ -47,7 +47,7 @@ def _write_stray(dst: Path, n: int = 25) -> list[float]:
                     cv2.imread(str(SCENE / "confidence" / dp.name), cv2.IMREAD_UNCHANGED))
         x, y, z = T_stray[:3, 3]
         rows.append(f"{t}, {fr}, {x}, {y}, {z}, {q[0]}, {q[1]}, {q[2]}, {q[3]}, "
-                    f"{fx * s}, {fy * s}, {cx * s}, {cy * s}, 0, 0")
+                    f"{fx * s}, {fy * s}, {cx * s}, {cy * s}, , ")    # distortion columns empty, as in real exports
         kept.append(t)
     (dst / "odometry.csv").write_text("timestamp, frame, x, y, z, qx, qy, qz, qw, fx, fy, cx, cy, "
                                       "distortion_center_x, distortion_center_y\n" + "\n".join(rows) + "\n")
