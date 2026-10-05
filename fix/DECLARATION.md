@@ -175,3 +175,43 @@ rooms are harder:
 measure ceiling height.
 
 **Next fix:** metric scale from the RGB depth model, the root cause of those widths.
+
+## Fix 4: the same room measured twice gives different walls (repeatability gate)
+
+**Worst gate.** G.3 repeatability: wall lengths from two captures of one room within max(1 cm, 0.5 %).
+It is the lowest-scoring gate on the benchmark set (`bench/results/gates.md`, commit `dc2fd2b`):
+
+| tier | pair | walls within tolerance | median length difference | ceiling difference |
+|---|---|---|---|---|
+| LiDAR | 42444946 / 42444949 | **0/8** | 14.0 cm | 0.6 cm |
+| LiDAR | honka_long / honka_short | 3/6 | 2.1 cm | 0.5 cm |
+| video | both pairs | 0/4 | 12–96 cm | 1.3–4.6 cm |
+| photo | both pairs | 0/3 | 35–105 cm | 17–27 cm |
+
+**Scope.** This fix targets the LiDAR tier, 3/14 (21 %). The video and photo rows have a different
+cause: per-capture metric scale from the depth model is off by 3–12 %, so lengths and ceilings disagree
+together. No outline change can reach 0.5 % there.
+
+**Root cause (evidence: per-wall audit of both pairs against the Faro laser).**
+- **Depth and poses repeat.** The ceiling agrees to 0.5–0.6 cm within each pair. Every well-observed wall
+  sits within ±2 cm of the laser in *both* captures.
+- **The outlines do not.** 42444946 has 10 edges and 42444949 has 12. Of these, 2 and 4 are floor-boundary
+  edges with no wall plane behind them (observed fraction 0): the visible floor stopped at furniture, not at
+  a wall.
+- **Each notch cuts a real wall into different pieces in each capture,** so the same wall gets different
+  lengths. honka: one 0.42 m floor-boundary notch in honka_long (−19.8 cm vs laser) splits the long wall.
+  It reads 5.39 m there and 5.83 m in honka_short, which has no notch. The same notch costs 3 of the 4
+  head-to-head losses.
+
+**Fix.** A floor-boundary edge (no wall plane, not a shared boundary with another room) is not a wall.
+- When the notch is no deeper than the reach used to find a wall behind furniture (`STRUCT_REACH`, 0.8 m,
+  wardrobe/counter depth), the edge is removed and its two neighbours merge. The better-supported wall
+  plane keeps the position.
+- Deeper floor-boundary edges stay, marked inferred (observed fraction 0, widened interval), as now.
+- No other threshold changes.
+
+**Predicted after-numbers (LiDAR, benchmark set).**
+- G.3-lidar: **≥ 40 %** of matched walls within tolerance (from 21 %); honka pair ≥ 4 matched walls within.
+- Floor-boundary edges on the four laser captures: from 7 to ≤ 3.
+- Head-to-head vs Polycam: **≥ 70 %** (from 69 %): the honka notch's three losses go away.
+- Do no harm: no laser-scored wall position more than 2 cm worse; ceiling and calibration gates unchanged.
