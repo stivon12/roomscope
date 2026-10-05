@@ -1,0 +1,9 @@
+# Per-room photo selection for the photo tier from the Stray recording yc/c7d28f72c6 (seconds into rgb.mp4).
+# Chosen by eye from contact sheets (2 s spacing) as a photographer standing in each room would shoot it:
+# camera in the room, looking into it, 2-8 views spread around. Room names are what the frames show.
+office: [3, 4.5, 104, 106, 108, 110, 206]
+dining: [16, 18, 20, 22, 126, 128, 130, 132]
+living: [34, 36, 38, 44, 46, 48, 150, 152]
+bath_shower: [56, 58, 60, 62, 64, 162, 168]
+bath_toilet: [94, 96, 98]
+hallway: [12, 14, 72, 74, 84, 120, 178]

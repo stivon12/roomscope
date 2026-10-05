@@ -1,0 +1,976 @@
+{
+ "gates": [
+  {
+   "id": "G.2a",
+   "gate": "Ceiling height <= 1.5 cm (LiDAR, per room vs laser)",
+   "target": 1.0,
+   "n": 4,
+   "pass": 4,
+   "rate": 1.0,
+   "detail": "|err| median 0.83 cm, max 1.36 cm"
+  },
+  {
+   "id": "G.2b",
+   "gate": "Ceiling spread across captures of one room <= 1 cm (LiDAR)",
+   "target": 1.0,
+   "n": 2,
+   "pass": 2,
+   "rate": 1.0,
+   "detail": "421337 0.62 cm, honka 0.41 cm"
+  },
+  {
+   "id": "G.3-lidar",
+   "gate": "Repeatability: wall lengths of two captures within max(1 cm, 0.5 %) (lidar)",
+   "target": 1.0,
+   "n": 12,
+   "pass": 4,
+   "rate": 0.333,
+   "detail": "lidar 42444946/42444949: 4 walls matched, rooms unmatched 0+0; lidar honka_long/honka_short: 8 walls matched, rooms unmatched 0+0"
+  },
+  {
+   "id": "G.3-video",
+   "gate": "Repeatability: wall lengths of two captures within max(1 cm, 0.5 %) (video)",
+   "target": 1.0,
+   "n": 4,
+   "pass": 0,
+   "rate": 0.0,
+   "detail": "video 42444946/42444949: 3 walls matched, rooms unmatched 0+0; video honka_long/honka_short: 1 walls matched, rooms unmatched 0+0"
+  },
+  {
+   "id": "G.3-photo",
+   "gate": "Repeatability: wall lengths of two captures within max(1 cm, 0.5 %) (photo)",
+   "target": 1.0,
+   "n": 2,
+   "pass": 0,
+   "rate": 0.0,
+   "detail": "photo honka_long/honka_short: 2 walls matched, rooms unmatched 0+0"
+  },
+  {
+   "id": "G.6-photo",
+   "gate": "Wall length within +-8 % (photo, clean laser reference)",
+   "target": 1.0,
+   "n": 0,
+   "pass": 0,
+   "rate": null,
+   "detail": "no scored walls"
+  },
+  {
+   "id": "G.6-video",
+   "gate": "Wall length within +-3 % (video, clean laser reference)",
+   "target": 1.0,
+   "n": 0,
+   "pass": 0,
+   "rate": null,
+   "detail": "no scored walls"
+  },
+  {
+   "id": "G.6-lidar",
+   "gate": "Wall length within +-3 % (lidar, clean laser reference) [not a brief gate for LiDAR: shown for comparison]",
+   "target": 1.0,
+   "n": 11,
+   "pass": 6,
+   "rate": 0.545,
+   "detail": "median |rel| 3.0 %"
+  },
+  {
+   "id": "CAL-lidar",
+   "gate": "Calibrated intervals cover the laser value (nominal 0.9) (lidar)",
+   "target": 0.9,
+   "n": 15,
+   "pass": 13,
+   "rate": 0.867,
+   "detail": "walls + ceilings"
+  },
+  {
+   "id": "CAL-video",
+   "gate": "Calibrated intervals cover the laser value (nominal 0.9) (video)",
+   "target": 0.9,
+   "n": 4,
+   "pass": 0,
+   "rate": 0.0,
+   "detail": "walls + ceilings"
+  },
+  {
+   "id": "CAL-photo",
+   "gate": "Calibrated intervals cover the laser value (nominal 0.9) (photo)",
+   "target": 0.9,
+   "n": 3,
+   "pass": 0,
+   "rate": 0.0,
+   "detail": "walls + ceilings"
+  },
+  {
+   "id": "G.5",
+   "gate": "Photo tier: whole property stitched from per-room folders, footprint +-8 %",
+   "target": null,
+   "n": 1,
+   "pass": null,
+   "rate": null,
+   "detail": "stitch_status=partial, 5 of 6 rooms placed; footprint accuracy NOT measurable: the multi-room capture has no ground truth"
+  },
+  {
+   "id": "G.1",
+   "gate": "Openings <= 2 cm on >= 85 %",
+   "target": 0.85,
+   "n": 0,
+   "pass": null,
+   "rate": null,
+   "detail": "NOT measurable: no door/window ground truth in any laser scan of the set (needs annotation)"
+  }
+ ],
+ "captures": [
+  {
+   "id": "42444946",
+   "tier": "lidar",
+   "group": "421337",
+   "status": "ok",
+   "rooms": 1,
+   "dir": "out/bench/lidar/42444946/42444946",
+   "stitch": "single_room",
+   "ceil": [
+    {
+     "room": "R1",
+     "ref": 3.0574610056123586,
+     "err": 0.0018389943876413462,
+     "covered": true,
+     "ref_percentile": 3.0577080829347807,
+     "laser_tilt_mm_per_m": [
+      4.1,
+      5.6
+     ]
+    }
+   ],
+   "walls": [
+    {
+     "room": "R1",
+     "wall": "R1-W1",
+     "ref": 0.20783795110839653,
+     "err": 0.3977620488916035,
+     "rel": 1.9138085550321522,
+     "covered": 0.0
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W6",
+     "ref": 1.6011190014172927,
+     "err": 0.001180998582707371,
+     "rel": 0.0007376082487697833,
+     "covered": 1.0
+    }
+   ],
+   "walls_step": [
+    {
+     "room": "R1",
+     "wall": "R1-W8",
+     "ref": 5.408568534521416,
+     "err": 0.04663146547858332,
+     "rel": 0.008621775832357015,
+     "covered": 1.0,
+     "err_lower_bound": 0.04663146547858332
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W9",
+     "ref": 4.427519980957975,
+     "err": 0.028980019042025518,
+     "rel": 0.006545429307301509,
+     "covered": 1.0,
+     "err_lower_bound": 0.028980019042025518
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W10",
+     "ref": 1.3612675014111866,
+     "err": -0.029267501411186503,
+     "rel": -0.02150018374848861,
+     "covered": 1.0,
+     "err_lower_bound": -0.029267501411186503
+    }
+   ],
+   "planes": [
+    {
+     "room": "R1",
+     "wall": "R1-W1",
+     "offset_err": -0.05761976914619116,
+     "n_ref": 3513,
+     "support_m": 0.3
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W2",
+     "offset_err": -0.373698791255737,
+     "n_ref": 101387,
+     "support_m": 1.5
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W5",
+     "offset_err": 0.017198199160871397,
+     "n_ref": 131764,
+     "support_m": 1.7
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W7",
+     "offset_err": 0.018279197743578557,
+     "n_ref": 19969,
+     "support_m": 0.6
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W10",
+     "offset_err": 0.024063257635866808,
+     "n_ref": 32757,
+     "support_m": 1.2
+    }
+   ],
+   "unscored": 3,
+   "n_edges": 10
+  },
+  {
+   "id": "42444946",
+   "tier": "video",
+   "group": "421337",
+   "status": "ok",
+   "rooms": 1,
+   "dir": "out/bench/video/42444946/42444946",
+   "stitch": "single_room",
+   "ceil": [
+    {
+     "room": "R1",
+     "ref": 3.059761670779766,
+     "err": -0.07656167077976583,
+     "covered": false,
+     "ref_percentile": 3.0642457229191677,
+     "laser_tilt_mm_per_m": [
+      13.2,
+      5.4
+     ]
+    }
+   ],
+   "walls": [],
+   "walls_step": [
+    {
+     "room": "R1",
+     "wall": "R1-W1",
+     "ref": 4.2071847384750845,
+     "err": -0.1959847384750848,
+     "rel": -0.04658334507700279,
+     "covered": 0.0,
+     "err_lower_bound": -0.1959847384750848
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W2",
+     "ref": 3.854136381306791,
+     "err": -0.17193638130679112,
+     "rel": -0.04461087109960915,
+     "covered": 0.0,
+     "err_lower_bound": -0.04119833898680403
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W3",
+     "ref": 4.2071847384750845,
+     "err": -0.1959847384750848,
+     "rel": -0.04658334507700279,
+     "covered": 0.0,
+     "err_lower_bound": -0.1959847384750848
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W4",
+     "ref": 3.854136381306791,
+     "err": -0.17193638130679112,
+     "rel": -0.04461087109960915,
+     "covered": 0.0,
+     "err_lower_bound": -0.04119833898680403
+    }
+   ],
+   "planes": [
+    {
+     "room": "R1",
+     "wall": "R1-W4",
+     "offset_err": -0.1585693737804328,
+     "n_ref": 203279,
+     "support_m": 3.5
+    }
+   ],
+   "unscored": 0,
+   "n_edges": 4
+  },
+  {
+   "id": "42444946",
+   "tier": "photo",
+   "group": "421337",
+   "status": "RuntimeError: no room reconstructed from out/photo_inputs/42444946"
+  },
+  {
+   "id": "42444949",
+   "tier": "lidar",
+   "group": "421337",
+   "status": "ok",
+   "rooms": 1,
+   "dir": "out/bench/lidar/42444949/42444949",
+   "stitch": "single_room",
+   "ceil": [
+    {
+     "room": "R1",
+     "ref": 3.058393403902804,
+     "err": 0.007106596097196327,
+     "covered": true,
+     "ref_percentile": 3.0622243600903687,
+     "laser_tilt_mm_per_m": [
+      9.1,
+      10.4
+     ]
+    }
+   ],
+   "walls": [
+    {
+     "room": "R1",
+     "wall": "R1-W4",
+     "ref": 1.508409035548289,
+     "err": -0.5949090355482891,
+     "rel": -0.39439503578155555,
+     "covered": 0.0
+    }
+   ],
+   "walls_step": [
+    {
+     "room": "R1",
+     "wall": "R1-W1",
+     "ref": 4.195433031657775,
+     "err": 0.2910669683422258,
+     "rel": 0.06937709794099955,
+     "covered": 0.0,
+     "err_lower_bound": 0.028809883507982192
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W2",
+     "ref": 3.862132685183692,
+     "err": -0.010132685183692036,
+     "rel": -0.002623598413012629,
+     "covered": 1.0,
+     "err_lower_bound": -0.010132685183692036
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W8",
+     "ref": 5.357720216786401,
+     "err": 0.0016797832135990731,
+     "rel": 0.00031352574334442274,
+     "covered": 1.0,
+     "err_lower_bound": 0.0016797832135990731
+    }
+   ],
+   "planes": [
+    {
+     "room": "R1",
+     "wall": "R1-W3",
+     "offset_err": 0.008174759040529528,
+     "n_ref": 285849,
+     "support_m": 3.2
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W5",
+     "offset_err": 0.6031837945888185,
+     "n_ref": 5161,
+     "support_m": 0.5
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W7",
+     "offset_err": -0.0036377093567609986,
+     "n_ref": 11713,
+     "support_m": 0.3
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W8",
+     "offset_err": 0.016271751332562256,
+     "n_ref": 153962,
+     "support_m": 3.1
+    }
+   ],
+   "unscored": 3,
+   "n_edges": 9
+  },
+  {
+   "id": "42444949",
+   "tier": "video",
+   "group": "421337",
+   "status": "ok",
+   "rooms": 1,
+   "dir": "out/bench/video/42444949/42444949",
+   "stitch": "single_room",
+   "ceil": [
+    {
+     "room": "R1",
+     "ref": 3.062801479197007,
+     "err": -0.1257014791970068,
+     "covered": false,
+     "ref_percentile": 3.0789208886027097,
+     "laser_tilt_mm_per_m": [
+      9.6,
+      16.4
+     ]
+    }
+   ],
+   "walls": [],
+   "walls_step": [
+    {
+     "room": "R1",
+     "wall": "R1-W6",
+     "ref": 4.184020714377873,
+     "err": -0.2489207143778729,
+     "rel": -0.05949318403766202,
+     "covered": 0.0,
+     "err_lower_bound": -0.2489207143778729
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W7",
+     "ref": 3.752061650247432,
+     "err": -0.19416165024743215,
+     "rel": -0.05174799039739342,
+     "covered": 0.0,
+     "err_lower_bound": -0.19416165024743215
+    }
+   ],
+   "planes": [
+    {
+     "room": "R1",
+     "wall": "R1-W2",
+     "offset_err": 0.9962048203975142,
+     "n_ref": 29540,
+     "support_m": 0.9
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W5",
+     "offset_err": -0.23107654333382444,
+     "n_ref": 152801,
+     "support_m": 1.9
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W8",
+     "offset_err": 0.3043978206173392,
+     "n_ref": 89748,
+     "support_m": 0.9
+    }
+   ],
+   "unscored": 4,
+   "n_edges": 9
+  },
+  {
+   "id": "42444949",
+   "tier": "photo",
+   "group": "421337",
+   "status": "ok",
+   "rooms": 1,
+   "dir": "out/bench/photo/42444949/42444949",
+   "stitch": "single_room",
+   "ceil": [
+    {
+     "room": "R1",
+     "ref": 3.0583319607124384,
+     "err": -0.2774319607124385,
+     "covered": false,
+     "ref_percentile": 3.0783961560122037,
+     "laser_tilt_mm_per_m": [
+      11.9,
+      18.7
+     ]
+    }
+   ],
+   "walls": [],
+   "walls_step": [
+    {
+     "room": "R1",
+     "wall": "R1-W1",
+     "ref": 4.203954320205901,
+     "err": 0.16174567979409904,
+     "rel": 0.038474652071428084,
+     "covered": 0.0,
+     "err_lower_bound": -0.07778414914755771
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W3",
+     "ref": 4.203954320205901,
+     "err": 0.16174567979409904,
+     "rel": 0.038474652071428084,
+     "covered": 0.0,
+     "err_lower_bound": -0.07778414914755771
+    }
+   ],
+   "planes": [],
+   "unscored": 1,
+   "n_edges": 4
+  },
+  {
+   "id": "honka_long",
+   "tier": "lidar",
+   "group": "honka",
+   "status": "ok",
+   "rooms": 1,
+   "dir": "out/bench/lidar/honka_long/honka_long",
+   "stitch": "single_room",
+   "ceil": [
+    {
+     "room": "R1",
+     "ref": 2.3487868400328624,
+     "err": -0.009486840032862265,
+     "covered": true,
+     "ref_percentile": 2.3490798738268577,
+     "laser_tilt_mm_per_m": [
+      5.5,
+      5.4
+     ]
+    }
+   ],
+   "walls": [
+    {
+     "room": "R1",
+     "wall": "R1-W1",
+     "ref": 0.40678895641948287,
+     "err": 0.010511043580517132,
+     "rel": 0.025839058348668953,
+     "covered": 1.0
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W3",
+     "ref": 5.58613154281134,
+     "err": -0.1661315428113399,
+     "rel": -0.02973999834019858,
+     "covered": 1.0
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W5",
+     "ref": 0.2709606629043857,
+     "err": 0.20973933709561432,
+     "rel": 0.774058252026145,
+     "covered": 1.0
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W7",
+     "ref": 6.263881162135208,
+     "err": 0.05421883786479231,
+     "rel": 0.008655789671193403,
+     "covered": 1.0
+    }
+   ],
+   "walls_step": [
+    {
+     "room": "R1",
+     "wall": "R1-W2",
+     "ref": 0.43668045486680507,
+     "err": -0.01258045486680509,
+     "rel": -0.028809292301947287,
+     "covered": 1.0,
+     "err_lower_bound": -0.01258045486680509
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W8",
+     "ref": 3.7783436431029567,
+     "err": 0.020056356897043326,
+     "rel": 0.00530824053911938,
+     "covered": 1.0,
+     "err_lower_bound": 0.020056356897043326
+    }
+   ],
+   "planes": [
+    {
+     "room": "R1",
+     "wall": "R1-W1",
+     "offset_err": 0.006867237004589133,
+     "n_ref": 4028,
+     "support_m": 0.3
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W2",
+     "offset_err": -0.017034373735559605,
+     "n_ref": 4365,
+     "support_m": 0.3
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W4",
+     "offset_err": -0.18316591654689884,
+     "n_ref": 4119,
+     "support_m": 0.3
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W6",
+     "offset_err": 0.026573420548715365,
+     "n_ref": 47962,
+     "support_m": 3.5
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W8",
+     "offset_err": -0.027645417316076504,
+     "n_ref": 64842,
+     "support_m": 3.6
+    }
+   ],
+   "unscored": 1,
+   "n_edges": 8
+  },
+  {
+   "id": "honka_long",
+   "tier": "video",
+   "group": "honka",
+   "status": "ok",
+   "rooms": 1,
+   "dir": "out/bench/video/honka_long/rgb.mp4",
+   "stitch": "single_room",
+   "ceil": [
+    {
+     "room": "R1",
+     "ref": 2.348656215950158,
+     "err": -0.2735562159501579,
+     "covered": false,
+     "ref_percentile": 2.3724362258766902,
+     "laser_tilt_mm_per_m": [
+      14.6,
+      12.7
+     ]
+    }
+   ],
+   "walls": [],
+   "walls_step": [
+    {
+     "room": "R1",
+     "wall": "R1-W1",
+     "ref": 0.2064555404694346,
+     "err": 0.1136444595305654,
+     "rel": 0.5504548789156389,
+     "covered": 0.0,
+     "err_lower_bound": 0.1136444595305654
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W8",
+     "ref": 5.87754654539648,
+     "err": -0.5746465453964795,
+     "rel": -0.09776979917693118,
+     "covered": 0.0,
+     "err_lower_bound": -0.5746465453964795
+    }
+   ],
+   "planes": [
+    {
+     "room": "R1",
+     "wall": "R1-W9",
+     "offset_err": 0.4030161983919235,
+     "n_ref": 7846,
+     "support_m": 0.5
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W12",
+     "offset_err": -0.26928784342911954,
+     "n_ref": 9969,
+     "support_m": 0.6
+    }
+   ],
+   "unscored": 6,
+   "n_edges": 13
+  },
+  {
+   "id": "honka_long",
+   "tier": "photo",
+   "group": "honka",
+   "status": "ok",
+   "rooms": 1,
+   "dir": "out/bench/photo/honka_long/honka_long",
+   "stitch": "single_room",
+   "ceil": [
+    {
+     "room": "R1",
+     "ref": 2.3532092049242013,
+     "err": -0.10040920492420113,
+     "covered": false,
+     "ref_percentile": 2.3494903273567598,
+     "laser_tilt_mm_per_m": [
+      3.2,
+      0.4
+     ]
+    }
+   ],
+   "walls": [],
+   "walls_step": [],
+   "planes": [
+    {
+     "room": "R1",
+     "wall": "R1-W1",
+     "offset_err": 0.09473942348979847,
+     "n_ref": 26393,
+     "support_m": 2.0
+    }
+   ],
+   "unscored": 2,
+   "n_edges": 4
+  },
+  {
+   "id": "honka_short",
+   "tier": "lidar",
+   "group": "honka",
+   "status": "ok",
+   "rooms": 1,
+   "dir": "out/bench/lidar/honka_short/honka_short",
+   "stitch": "single_room",
+   "ceil": [
+    {
+     "room": "R1",
+     "ref": 2.348809880320619,
+     "err": -0.013609880320619272,
+     "covered": true,
+     "ref_percentile": 2.3483990534134858,
+     "laser_tilt_mm_per_m": [
+      1.0,
+      2.0
+     ]
+    }
+   ],
+   "walls": [
+    {
+     "room": "R1",
+     "wall": "R1-W2",
+     "ref": 0.41228867181602613,
+     "err": 0.02791132818397385,
+     "rel": 0.06769850857417836,
+     "covered": 1.0
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W4",
+     "ref": 5.586285207394453,
+     "err": -0.08628520739445289,
+     "rel": -0.015445900843057414,
+     "covered": 1.0
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W6",
+     "ref": 0.26560337296201286,
+     "err": 0.06819662703798712,
+     "rel": 0.25676114831471186,
+     "covered": 1.0
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W8",
+     "ref": 6.264177252172492,
+     "err": 0.009822747827508138,
+     "rel": 0.0015680826758377453,
+     "covered": 1.0
+    }
+   ],
+   "walls_step": [
+    {
+     "room": "R1",
+     "wall": "R1-W1",
+     "ref": 3.7875207402277926,
+     "err": 0.022679259772207416,
+     "rel": 0.005987890582704436,
+     "covered": 1.0,
+     "err_lower_bound": 0.022679259772207416
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W3",
+     "ref": 0.42915738930634406,
+     "err": 0.0027426106936559447,
+     "rel": 0.006390687337549661,
+     "covered": 1.0,
+     "err_lower_bound": 0.0027426106936559447
+    }
+   ],
+   "planes": [
+    {
+     "room": "R1",
+     "wall": "R1-W1",
+     "offset_err": 0.00025598038666707623,
+     "n_ref": 64487,
+     "support_m": 3.7
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W2",
+     "offset_err": 0.0033399743270443594,
+     "n_ref": 4449,
+     "support_m": 0.3
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W3",
+     "offset_err": -0.02755534779730695,
+     "n_ref": 4434,
+     "support_m": 0.3
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W5",
+     "offset_err": 0.05872985959714616,
+     "n_ref": 4180,
+     "support_m": 0.3
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W7",
+     "offset_err": -0.009466767440841073,
+     "n_ref": 48656,
+     "support_m": 3.6
+    }
+   ],
+   "unscored": 1,
+   "n_edges": 8
+  },
+  {
+   "id": "honka_short",
+   "tier": "video",
+   "group": "honka",
+   "status": "ok",
+   "rooms": 1,
+   "dir": "out/bench/video/honka_short/rgb.mp4",
+   "stitch": "single_room",
+   "ceil": [
+    {
+     "room": "R1",
+     "ref": 2.3690686033388864,
+     "err": -0.28076860333888654,
+     "covered": false,
+     "ref_percentile": 2.6508243743890487,
+     "laser_tilt_mm_per_m": [
+      114.7,
+      108.6
+     ]
+    }
+   ],
+   "walls": [],
+   "walls_step": [],
+   "planes": [
+    {
+     "room": "R1",
+     "wall": "R1-W3",
+     "offset_err": 0.11752932324772347,
+     "n_ref": 9248,
+     "support_m": 1.3
+    }
+   ],
+   "unscored": 2,
+   "n_edges": 4
+  },
+  {
+   "id": "honka_short",
+   "tier": "photo",
+   "group": "honka",
+   "status": "ok",
+   "rooms": 1,
+   "dir": "out/bench/photo/honka_short/honka_short",
+   "stitch": "single_room",
+   "ceil": [
+    {
+     "room": "R1",
+     "ref": 2.348538107788471,
+     "err": 0.07366189221152908,
+     "covered": false,
+     "ref_percentile": 2.3524540530523343,
+     "laser_tilt_mm_per_m": [
+      7.3,
+      7.8
+     ]
+    }
+   ],
+   "walls": [],
+   "walls_step": [
+    {
+     "room": "R1",
+     "wall": "R1-W1",
+     "ref": 6.255035431815546,
+     "err": -0.07783543181554631,
+     "rel": -0.01244364363144057,
+     "covered": 0.0,
+     "err_lower_bound": 0.03306028745869938
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W2",
+     "ref": 4.266527340399553,
+     "err": -0.20522734039955282,
+     "rel": -0.048101728648557884,
+     "covered": 0.0,
+     "err_lower_bound": -0.103905404371746
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W3",
+     "ref": 6.255035431815546,
+     "err": -0.07783543181554631,
+     "rel": -0.01244364363144057,
+     "covered": 0.0,
+     "err_lower_bound": 0.03306028745869938
+    },
+    {
+     "room": "R1",
+     "wall": "R1-W4",
+     "ref": 4.266527340399553,
+     "err": -0.20522734039955282,
+     "rel": -0.048101728648557884,
+     "covered": 0.0,
+     "err_lower_bound": -0.103905404371746
+    }
+   ],
+   "planes": [
+    {
+     "room": "R1",
+     "wall": "R1-W4",
+     "offset_err": -0.002961909315216893,
+     "n_ref": 34926,
+     "support_m": 2.3
+    }
+   ],
+   "unscored": 0,
+   "n_edges": 4
+  },
+  {
+   "id": "c7d28f72c6",
+   "tier": "lidar",
+   "group": "yc_apartment",
+   "status": "ok",
+   "rooms": 6,
+   "dir": "out/bench/lidar/c7d28f72c6/c7d28f72c6",
+   "stitch": "stitched"
+  },
+  {
+   "id": "c7d28f72c6",
+   "tier": "video",
+   "group": "yc_apartment",
+   "status": "ok",
+   "rooms": 1,
+   "dir": "out/bench/video/c7d28f72c6/rgb.mp4",
+   "stitch": "single_room"
+  },
+  {
+   "id": "c7d28f72c6",
+   "tier": "photo",
+   "group": "yc_apartment",
+   "status": "ok",
+   "rooms": 5,
+   "dir": "out/bench/photo/c7d28f72c6/c7d28f72c6_rooms",
+   "stitch": "partial"
+  }
+ ]
+}

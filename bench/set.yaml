@@ -1,0 +1,16 @@
+# Benchmark set: real captures only (no synthetic data), the smallest set that covers the brief's list:
+# one multi-room capture (YC) and two rooms captured twice with laser ground truth, each at all three tiers.
+# Checked against the brief's
+# composition list in benchmark/SET.md. Tier inputs:
+#   lidar: the capture itself.  video: its RGB stream (ARKitScenes .mov, Stray rgb.mp4).
+#   photo: stills from that stream (bench/make_photos.py), one folder per room; for the multi-room YC recording
+#          chosen by hand per room (benchmark/photo_select/<id>.yaml).
+# gt: faro_arkitscenes (eval/laser.score_capture) | faro_ply:<path> (bench/mushroom_eval.score) | none
+# group: captures of the same room/space (repeatability and spread).
+captures:
+  - {id: "42444946", source: arkitscenes, path: benchmark/raw/arkitscenes/raw/Validation/42444946, gt: faro_arkitscenes, group: "421337"}
+  - {id: "42444949", source: arkitscenes, path: benchmark/raw/arkitscenes/raw/Validation/42444949, gt: faro_arkitscenes, group: "421337"}
+  - {id: honka_long, source: mushroom, path: benchmark/raw/mushroom_stray/honka_long, gt: "faro_ply:benchmark/raw/mushroom/room_datasets/honka/gt_pd.ply", group: honka}
+  - {id: honka_short, source: mushroom, path: benchmark/raw/mushroom_stray/honka_short, gt: "faro_ply:benchmark/raw/mushroom/room_datasets/honka/gt_pd.ply", group: honka}
+  - {id: c7d28f72c6, source: yc, path: benchmark/raw/yc/c7d28f72c6, gt: none, group: yc_apartment, multi_room: true,
+     photo_select: benchmark/photo_select/c7d28f72c6.yaml}

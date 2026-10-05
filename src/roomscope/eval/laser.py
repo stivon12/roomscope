@@ -508,6 +508,10 @@ def score_result(result: dict, laser_reg: o3d.geometry.PointCloud) -> dict:
             if a is None or b is None:
                 continue
             ref_len = abs(b["offset"] - a["offset"])
+            if ref_len < 0.1:            # both neighbours took the same laser surface: no length to compare
+                out["unscored"].append({"room": room["id"], "wall": w["id"], "length": round(w["length"]["value"], 2),
+                                        "reason": "length: both neighbouring references are the same surface"})
+                continue
             L_ = w["length"]
             row = {"room": room["id"], "wall": w["id"], "ref": ref_len, "err": L_["value"] - ref_len,
                    "rel": L_["value"] / ref_len - 1, "covered": L_["lo"] <= ref_len <= L_["hi"]}
