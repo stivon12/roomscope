@@ -632,13 +632,25 @@ def segment_rooms(cloud: Cloud, floor: HPlane, walls: list[WallPlane], min_area:
         cnt = np.bincount(hl[touch & (hl > 0)], minlength=nh)
         keep = {k for k in range(1, nh) if cnt[k] >= int(0.3 / GRID)}
         holes = np.isin(hl, list(keep)).astype(np.uint8) if keep else np.zeros_like(holes)
+        seen = m
         m = (m | holes).astype(np.uint8)
         m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
         if not _entered(m, g, cloud.cams[:, :2], rcfg, (lab > 0) & (lab != k)):   # on the filled room
             segment_rooms.not_entered.append(float(m.sum() * GRID * GRID))
             continue
         rooms.append(m)
-        inferred.append(float(holes.sum() * GRID * GRID))
+        inferred.append(seen)
+    # Each room fills unobserved floor on its own, so two rooms can claim the same unseen patch
+    # (1a8384c3f6: 1.75 m2, drawn twice). A contested cell goes to the room whose own floor
+    # evidence is nearest.
+    if len(rooms) > 1:
+        claims = np.sum(rooms, axis=0)
+        if (claims > 1).any():
+            dist = np.stack([ndimage_edt(sn == 0) for sn in inferred])
+            owner = np.argmin(dist, axis=0)
+            for k in range(len(rooms)):
+                rooms[k] = (rooms[k] & ((claims <= 1) | (owner == k))).astype(np.uint8)
+    inferred = [float(max(0, int(m.sum()) - int((m & sn).sum())) * GRID * GRID) for m, sn in zip(rooms, inferred)]
     return rooms, g, cuts, inferred
 
 
@@ -705,10 +717,17 @@ class Edge:
     c: float
     face: str            # wall facing into the room
     plane: WallPlane | None
+    shared: bool = False # open boundary with another room (no wall): position from the room partition
 
 
-def room_polygon(mask: np.ndarray, g: Grid2, walls: list[WallPlane]):
-    """Contour -> rectilinear edges -> each edge snapped to the wall plane facing into the room."""
+def room_polygon(mask: np.ndarray, g: Grid2, walls: list[WallPlane], others: np.ndarray | None = None):
+    """Contour -> rectilinear edges -> each edge snapped to the wall plane facing into the room.
+
+    others: the other rooms' floor masks. An edge whose outside is mostly another room's floor is an open
+    boundary (doorway, open junction) shared with that room: it is never snapped to a wall plane, so both
+    rooms keep the same partition line instead of each snapping to a different nearby wall face
+    (c00a170fe1: corridor and room snapped 15 cm apart, overlapping by 0.25 m2)."""
+    nb = cv2.dilate(others.astype(np.uint8), np.ones((3, 3), np.uint8)) if others is not None else None
     cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     cnt = max(cnts, key=cv2.contourArea)
     ap = cv2.approxPolyDP(cnt, 3, True)[:, 0, :].astype(float)
@@ -735,6 +754,15 @@ def room_polygon(mask: np.ndarray, g: Grid2, walls: list[WallPlane]):
         sign = 1 if poly.contains(Point(probe)) else -1      # interior is on +axis side -> wall faces +axis
         face = ("+" if sign > 0 else "-") + "xy"[axis]
         lo, hi = sorted((p[1 - axis], q[1 - axis]))
+        if nb is not None:
+            t = np.linspace(0, 1, max(2, int(L / GRID)))
+            probe_pts = p[None, :] + t[:, None] * d[None, :]
+            probe_pts[:, axis] -= sign * 1.5 * GRID          # just outside the room
+            pi_, pj = g.ij(probe_pts[:, 0], probe_pts[:, 1])
+            ok = (pi_ >= 0) & (pi_ < g.h) & (pj >= 0) & (pj < g.w)
+            if ok.any() and nb[pi_[ok], pj[ok]].mean() >= 0.5:
+                edges.append(Edge(axis, c, face, None, shared=True))
+                continue
         # Observed walls beat floor extent: snap to the facing wall plane within SNAP_DIST of the floor
         # boundary. Prefer planes whose observed extent overlaps the edge; a plane whose line merely
         # continues past the edge (an extended wall) is allowed at a penalty.
@@ -810,6 +838,82 @@ def room_polygon(mask: np.ndarray, g: Grid2, walls: list[WallPlane]):
         rev = walls_e[::-1]
         walls_e = rev[1:] + rev[:1]
     return corners, walls_e
+
+
+def _edges_of(poly: Polygon, old: list[Edge]) -> tuple[list, list[Edge]] | None:
+    """Corners (CCW) and edges of a rectilinear polygon, reusing the old edge on each side where one
+    lies on the same line; any other side lies on a neighbour's boundary (shared, no plane of its own)."""
+    poly = poly.simplify(1e-6)
+    if not poly.exterior.is_ccw:
+        poly = Polygon(list(poly.exterior.coords)[::-1])
+    pts = [tuple(map(float, c)) for c in poly.exterior.coords[:-1]]
+    n = len(pts)
+    if n < 4:
+        return None
+    edges: list[Edge] = []
+    for k in range(n):
+        p, q = np.array(pts[k]), np.array(pts[(k + 1) % n])
+        d = q - p
+        if min(abs(d[0]), abs(d[1])) > 1e-6:
+            return None                        # not rectilinear
+        axis = 0 if abs(d[0]) < abs(d[1]) else 1
+        c = float(p[axis])
+        lo, hi = sorted((p[1 - axis], q[1 - axis]))
+        # CCW: the interior is on the left of p -> q, and the wall faces into the room
+        face = ("+" if (axis == 0 and d[1] < 0) or (axis == 1 and d[0] > 0) else "-") + "xy"[axis]
+        match = [e for e in old if e.axis == axis and abs(e.c - c) < 1e-6 and e.face == face]
+        edges.append(match[0] if match else Edge(axis, c, face, None, shared=True))
+    return pts, edges
+
+
+def reconcile_rooms(polys: list[tuple[list, list[Edge]]], max_loss: float = 0.3):
+    """Rooms are a partition, so their polygons must not overlap; each was snapped to walls on its own.
+    For every overlapping pair the room whose intruding edges are backed by the better-supported wall
+    plane keeps the contested strip; the other is clipped to it and takes that line as a shared
+    boundary. Two observed wall faces that cross (a wall of negative thickness) are reported: that is
+    pose drift between the two sides, not geometry. Returns (polys, warnings)."""
+    from shapely.geometry import Point
+    polys = list(polys)
+    warns = []
+    for i in range(len(polys)):
+        for j in range(i + 1, len(polys)):
+            if polys[i] is None or polys[j] is None:
+                continue
+            Pi, Pj = Polygon(polys[i][0]), Polygon(polys[j][0])
+            ov = Pi.intersection(Pj)
+            if ov.area < 1e-3:
+                continue
+
+            def claim(P, edges, other):
+                """Support of P's edges that lie inside the other room (the edges that intrude)."""
+                cs = list(P.exterior.coords)
+                best = 0
+                for k, e in enumerate(edges):
+                    mid = Point((cs[k][0] + cs[k + 1][0]) / 2, (cs[k][1] + cs[k + 1][1]) / 2)
+                    if other.buffer(1e-6).contains(mid) and not other.exterior.buffer(1e-6).contains(mid):
+                        best = max(best, e.plane.n if e.plane is not None and not e.shared else 0)
+                return best
+
+            ci, cj = claim(Pi, polys[i][1], Pj), claim(Pj, polys[j][1], Pi)
+            win, lose = (i, j) if ci >= cj else (j, i)
+            Pw, Pl = (Pi, Pj) if win == i else (Pj, Pi)
+            minx, miny, maxx, maxy = ov.bounds
+            if ci > 0 and cj > 0:
+                warns.append(f"R{i + 1}/R{j + 1}: their wall faces cross by {100 * min(maxx - minx, maxy - miny):.0f} cm "
+                             "(a wall cannot be thinner than zero: pose drift between the two sides, or one face is not "
+                             "the wall); the better-supported face is kept")
+            rest = Pl.difference(Pw)
+            if rest.geom_type != "Polygon":
+                rest = max(getattr(rest, "geoms", [rest]), key=lambda g_: g_.area)
+            if rest.is_empty or rest.area < (1 - max_loss) * Pl.area:
+                warns.append(f"R{i + 1}/R{j + 1}: outlines overlap by {ov.area:.2f} m2 and could not be reconciled")
+                continue
+            r = _edges_of(rest, polys[lose][1])
+            if r is None:
+                warns.append(f"R{i + 1}/R{j + 1}: outlines overlap by {ov.area:.2f} m2 and could not be reconciled")
+                continue
+            polys[lose] = r
+    return polys, warns
 
 
 # ---------------------------------------------------------------------------------------------------

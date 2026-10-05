@@ -45,3 +45,24 @@ def test_open_plan_arch_merges():
     box(m, 4.4, 0.2, 8.4, 4.2)
     box(m, 4.2, 0.8, 4.4, 3.6)          # 2.8 m arch: one open-plan space
     assert n_rooms(m) == 1
+
+
+def test_overlapping_rooms_are_reconciled_to_the_supported_wall():
+    from shapely.geometry import Polygon
+    from roomscope.core import layout as L
+
+    class P:            # stand-in wall plane: only support (n) is used
+        def __init__(self, n):
+            self.n = n
+    def rect(x0, y0, x1, y1, planes):
+        r = L._edges_of(Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)]), [])
+        corners, edges = r
+        for e in edges:
+            e.shared, e.plane = False, planes.get((e.axis, round(e.c, 3)))
+        return corners, edges
+    a = rect(0, 0, 3.0, 3, {(0, 3.0): None})                 # right side unsnapped (open boundary)
+    b = rect(2.8, 0, 6, 3, {(0, 2.8): P(5000)})              # left side on an observed wall
+    (ca, ea), (cb, eb) = L.reconcile_rooms([a, b])[0]
+    A, B = Polygon(ca), Polygon(cb)
+    assert A.intersection(B).area < 1e-9 and abs(B.area - 3.2 * 3) < 1e-9
+    assert any(e.shared and e.axis == 0 and abs(e.c - 2.8) < 1e-9 for e in ea)

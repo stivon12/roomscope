@@ -51,15 +51,20 @@ def analyse(cap, corrs, warnings: list[str], single_room: bool = False):
         warnings.append(f"a {a:.1f} m2 region was seen (e.g. through a doorway) but the camera never walked into it: "
                         "not reported as a room")
 
-    rooms = []
-    for m, inf_area in zip(masks, inferred):
+    polys = []
+    for k, (m, inf_area) in enumerate(zip(masks, inferred)):
         if inf_area > 0.25:
             warnings.append(f"{inf_area:.2f} m2 of floor inferred (enclosed by walls, not directly observed)")
-        r = L.room_polygon(m, g, walls)
+        others = np.any([o for j, o in enumerate(masks) if j != k], axis=0) if len(masks) > 1 else None
+        r = L.room_polygon(m, g, walls, others)
         if r is None:
             warnings.append("a floor region could not be turned into a closed polygon and was dropped")
             continue
-        corners, edges = r
+        polys.append(r)
+    polys, rw = L.reconcile_rooms(polys)
+    warnings += rw
+    rooms = []
+    for corners, edges in polys:
         poly = Polygon(corners)
         ch = L.ceiling_height(cloud, floor, poly)
         rooms.append({"corners": corners, "edges": edges, "poly": poly, "ceil": ch})
@@ -152,7 +157,9 @@ def assemble(rooms, faces, grids, openings, warnings) -> dict:
                 "observed_fraction": round(float(seen), 3),
             })
             area_var += (length * pos_se[k]) ** 2
-            if e.plane is None:
+            if e.shared:
+                warnings.append(f"{rid}-W{k + 1}: open boundary with another room (no wall), position from the room partition")
+            elif e.plane is None:
                 warnings.append(f"{rid}-W{k + 1}: no fitted wall plane, edge taken from floor boundary")
         area = poly.area
         a_half = L.Z95 * np.sqrt(area_var + (poly.length * L.SYS_LEN) ** 2)
