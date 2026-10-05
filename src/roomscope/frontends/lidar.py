@@ -296,9 +296,20 @@ def load_arkitscenes(path: Path, pixel_stride: int = 3, frame_stride: int = 1, m
     return LidarCapture(pts, nrms, poses, Kd, np.asarray(ts), root, align=G)
 
 
+def _is_stray(path: Path) -> bool:
+    return (path / "odometry.csv").exists() or any(path.glob("*/odometry.csv"))
+
+
+def device_of(path: Path) -> str | None:
+    """Device model when the capture format records it. ARKitScenes was recorded on the 2020 iPad Pro
+    (Baruch et al. 2021); Stray exports carry no model anywhere (checked: video metadata, odometry,
+    camera matrix, IMU), so the operator must pass --device."""
+    return None if _is_stray(Path(path)) else "iPad Pro (2020)"
+
+
 def load_any(path: Path, **kw) -> LidarCapture:
     """Dispatch on layout: Stray (odometry.csv) or ARKitScenes (lowres_depth/ + lowres_wide.traj)."""
     path = Path(path)
-    if (path / "odometry.csv").exists() or any(path.glob("*/odometry.csv")):
+    if _is_stray(path):
         return load_stray(path, **kw)
     return load_arkitscenes(path, **kw)

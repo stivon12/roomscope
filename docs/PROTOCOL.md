@@ -22,10 +22,14 @@
 2. Tap record. Walk the same path as for the video, in **one recording through all rooms**: walls first, keep about 1–3 m from the wall, sweep the phone up to the ceiling and down to the floor once per wall. Go through doorways slowly.
 3. **Finish back where you started**, pointing at the same view you began with. Stop recording.
 4. **Hand-off:** connect the iPhone to the Mac → Finder → iPhone → **Files** tab → *Stray Scanner* → drag the recording folder (contains `rgb.mp4`, `depth/`, `confidence/`, `odometry.csv`, `camera_matrix.csv`) to the Mac.
+5. **Note the phone model** (Settings → General → About → Model Name). Stray does not record it, and the LiDAR depth correction is per device. Without it, every interval is widened by a 1% depth-scale prior.
+6. **Optional, once per phone:** measure one ceiling height with a tape or laser meter in a room you scanned, then run
+   `roomscope calibrate-depth <capture-folder> --device "iPhone 15 Pro" --measured R1:ceiling=2.95`.
+   That stores the phone's depth scale; later runs with `--device "iPhone 15 Pro"` use it and get the narrower intervals.
 
 ## Run (all tiers)
 ```
-roomscope run <capture-folder-or-video>
+roomscope run <capture-folder-or-video> [--device "iPhone 15 Pro"]
 ```
 Output: `out/<capture>/result.json` and `out/<capture>/plan.png`.
 

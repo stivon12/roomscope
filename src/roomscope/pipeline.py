@@ -280,9 +280,15 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, loa
             a, b = load_kw["depth_affine"]
             ds_meta = {"enabled": True, "scale": a, "offset_m": b, "se": 0.0, "source": "explicit depth_affine"}
         else:
+            from .frontends.lidar import device_of
+            device = device or device_of(capture)
             ds = resolve_depth_scale(device, depth_scale, depth_correction)
             load_kw["depth_affine"] = None if ds.scale == 1.0 else (ds.scale, 0.0)
             ds_meta = ds.to_json()
+            if depth_correction and depth_scale is None and ds.device == "unknown":
+                warnings.append(f"device {'not given' if not device else repr(device) + ' has no measured depth scale'}: "
+                                f"LiDAR scale uncertainty {100 * ds.se:.1f}% added to every interval "
+                                "(pass --device, or measure one distance with `roomscope calibrate-depth`)")
         cap = load_any(capture, **load_kw)
         warnings += getattr(cap, "load_warnings", [])
         body, cloud, drift_meta = _geometry(cap, drift, warnings)

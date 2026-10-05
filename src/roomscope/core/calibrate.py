@@ -196,6 +196,48 @@ def _recal(m: dict, q: float, tag: str, level: float, ref_scale: float | None = 
     return m
 
 
+def _widen(m: dict, rel: float) -> dict:
+    """Add a relative standard error `rel` (fully correlated scale error) in quadrature to a measurement's
+    half-width at its own level. Prior ranges (observed: false) are left as they are."""
+    if rel <= 0 or m.get("observed") is False:
+        return m
+    from scipy.stats import norm
+    v = m["value"]
+    z = float(norm.ppf(0.5 + m.get("level", 0.9) / 2))
+    half = math.hypot(m["hi"] - v, z * rel * abs(v))
+    tag = m.get("method", "") + " + depth-scale prior"
+    m.update(lo=round(v - half, 4), hi=round(v + half, 4), method=tag)
+    return m
+
+
+def widen_for_depth_scale(result: dict, excess: float) -> dict:
+    """LiDAR only: the conformal q was fitted on the calibration device. On another or unknown device the
+    depth scale is less certain; every length scales with it (a conservative bound: wall positions also
+    depend on unscaled VIO translation) and every area with its square."""
+    if excess <= 0:
+        return result
+    for room in result["rooms"]:
+        _widen(room["ceiling_height"], excess)
+        for w in room["walls"]:
+            _widen(w["length"], excess)
+            if w.get("height", {}).get("observed") is not False:
+                w["height"] = dict(room["ceiling_height"])
+        for key, r in (("perimeter", excess), ("floor_area", 2 * excess)):
+            if key in room:
+                _widen(room[key], r)
+        for o in room["openings"]:
+            for key in ("width", "height", "sill", "offset"):
+                if key in o:
+                    _widen(o[key], excess)
+    for sf in result.get("surfaces", []):
+        _widen(sf["area"], 2 * excess)
+    if "area" in result.get("footprint", {}):
+        _widen(result["footprint"]["area"], 2 * excess)
+    result.setdefault("warnings", []).append(
+        f"intervals include a {100 * excess:.1f}% LiDAR depth-scale uncertainty (device not calibrated)")
+    return result
+
+
 def apply(result: dict, tier: str, cfg: dict | None = None) -> dict:
     """Calibrate every measurement in a result dict for `tier`. Leaves raw intervals (and says so) when
     no calibration exists for that tier."""
@@ -251,4 +293,6 @@ def apply(result: dict, tier: str, cfg: dict | None = None) -> dict:
         h = math.sqrt(sum(x * x for x in halves))
         fp.update(lo=round(fp["value"] - h, 4), hi=round(fp["value"] + h, 4), level=L["level"],
                   method=f"conformal-propagated:{tier}:v1")
+    if tier == "lidar":
+        widen_for_depth_scale(result, float(result.get("meta", {}).get("depth_correction", {}).get("excess_se", 0.0)))
     return result

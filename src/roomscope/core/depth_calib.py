@@ -29,6 +29,7 @@ diversity.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 import numpy as np
@@ -44,24 +45,34 @@ class DepthScale:
     scale: float     # a = measured / true
     se: float
     source: str
+    device: str = "unknown"
+    excess_se: float = 0.0   # scale se beyond the calibration device's (added to intervals by core/calibrate)
 
     def to_json(self) -> dict:
         return {"enabled": self.scale != 1.0, "scale": round(self.scale, 5), "se": round(self.se, 5),
-                "source": self.source}
+                "excess_se": round(self.excess_se, 5), "device": self.device, "source": self.source}
+
+
+def load_config() -> dict:
+    import yaml
+    return yaml.safe_load(CONFIG.read_text())
 
 
 def resolve_depth_scale(device: str | None = None, override: float | None = None,
                         enabled: bool = True) -> DepthScale:
     """Depth scale to apply: an explicit override (e.g. from a tape-measured distance), else the
-    device's entry in config/depth_scale.yaml, else the config default."""
+    device's entry in config/depth_scale.yaml, else the unknown-device default."""
     if not enabled:
-        return DepthScale(1.0, 0.0, "disabled (ablation: depth as recorded)")
+        return DepthScale(1.0, 0.0, "disabled (ablation: depth as recorded)", device or "unknown")
     if override is not None:
-        return DepthScale(float(override), 0.0, "override (--depth-scale)")
-    import yaml
-    cfg = yaml.safe_load(CONFIG.read_text())
-    e = (cfg.get("devices") or {}).get(device or "", None) or cfg["default"]
-    return DepthScale(float(e["scale"]), float(e["se"]), str(e["source"]))
+        return DepthScale(float(override), 0.0, "override (--depth-scale)", device or "unknown")
+    cfg = load_config()
+    devs = cfg.get("devices") or {}
+    e = devs.get(device or "") or cfg["default"]
+    ref = devs.get(cfg.get("calibration_device", ""), {})
+    se = float(e["se"])
+    excess = float(np.sqrt(max(0.0, se ** 2 - float(ref.get("se", 0.0)) ** 2)))
+    return DepthScale(float(e["scale"]), se, str(e["source"]), device if device in devs else "unknown", excess)
 
 
 @dataclass
@@ -199,3 +210,65 @@ if __name__ == "__main__":
             continue
         print(f"{Path(s).name}: depth scale {r.scale:.4f} ({r.rel * 100:+.2f}% +- {r.se * 100:.2f}%)  "
               f"planes={r.n_planes} obs={r.n_obs} range spread={r.range_spread_m:.2f} m")
+
+
+# ---------------------------------------------------------------------------------------------------
+# per-device scale from a tape-measured reference (`roomscope calibrate-depth`)
+# ---------------------------------------------------------------------------------------------------
+REF_SD_M = 0.003       # a tape or laser distance meter read to the nearest few mm
+
+
+def scale_from_references(result: dict, refs: dict[str, float], ref_sd: float = REF_SD_M) -> tuple[float, float, list[str]]:
+    """a = reported / measured for each reference on an UNCORRECTED run. refs: {"R1:ceiling": 2.95,
+    "R1-W3": 3.42, "ceiling": 2.95 (single room)}. Ceiling height scales fully with depth (floor and
+    ceiling are both depth readings); a wall length only partly (wall positions also rest on VIO
+    translation), so it under-estimates the scale offset; ceilings are preferred and labelled.
+    Returns (a, se, notes). se combines the reference reading, the fit error, and the calibration
+    device's capture-to-capture spread (one capture cannot show its own repeatability)."""
+    rooms = {r["id"]: r for r in result["rooms"]}
+    walls = {w["id"]: w for r in result["rooms"] for w in r["walls"]}
+    a, var, notes = [], [], []
+    for key, truth in refs.items():
+        if key.endswith("ceiling"):
+            rid = key.split(":")[0] if ":" in key else (next(iter(rooms)) if len(rooms) == 1 else None)
+            if rid not in rooms:
+                raise ValueError(f"{key}: name the room (e.g. R1:ceiling); rooms are {sorted(rooms)}")
+            m = rooms[rid]["ceiling_height"]
+            if m.get("observed") is False:
+                raise ValueError(f"{key}: {rid}'s ceiling was not observed in this capture; scan the ceiling")
+            kind = "ceiling"
+        elif key in walls:
+            m, kind = walls[key]["length"], "wall (partial scale sensitivity)"
+        else:
+            raise ValueError(f"{key}: no such room ceiling or wall id")
+        v, s_fit = m["value"], (m["hi"] - m["value"]) / 1.645
+        a.append(v / truth)
+        var.append((v / truth) ** 2 * ((ref_sd / truth) ** 2 + (s_fit / v) ** 2))
+        notes.append(f"{key} {kind}: reported {v:.4f} m / measured {truth:.4f} m = {v / truth:.4f}")
+    w = 1 / np.asarray(var)
+    est = float(np.sum(w * np.asarray(a)) / w.sum())
+    se_meas = float(np.sqrt(1 / w.sum()))
+    cfg = load_config()
+    floor = float((cfg.get("devices") or {}).get(cfg.get("calibration_device", ""), {}).get("se", 0.0))
+    spread = float(np.std(a, ddof=1) / np.sqrt(len(a))) if len(a) >= 2 else 0.0
+    return est, float(max(np.hypot(se_meas, floor), spread)), notes
+
+
+def write_device_entry(device: str, scale: float, se: float, source: str, path=None) -> None:
+    """Insert or replace one device block under `devices:` in config/depth_scale.yaml, keeping comments."""
+    path = path or CONFIG
+    lines = path.read_text().splitlines()
+    block = [f'  "{device}":', f"    scale: {scale:.5f}", f"    se: {se:.5f}", f"    source: {json.dumps(source)}"]
+    head = f'  "{device}":'
+    if head in lines:
+        i = lines.index(head)
+        j = i + 1
+        while j < len(lines) and lines[j].startswith("    "):
+            j += 1
+        lines[i:j] = block
+    else:
+        i = lines.index("devices:") + 1
+        while i < len(lines) and lines[i].startswith("  ") and not lines[i].startswith("  #"):
+            i += 1
+        lines[i:i] = block
+    path.write_text("\n".join(lines) + "\n")
