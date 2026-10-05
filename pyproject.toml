@@ -19,11 +19,35 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-models = ["torch>=2.3", "torchvision", "huggingface_hub", "anthropic>=0.40"]
+# Video and photo tiers (and semantic labels): Depth Anything 3 for depth and poses, COLMAP (pycolmap) for SfM,
+# EoMT via transformers for segmentation. pycolmap and torch must never be imported in one process on macOS
+# (two OpenMP runtimes abort Python): COLMAP and DA3 each run in their own subprocess of this interpreter.
+video = [
+  "torch>=2.3", "torchvision", "huggingface_hub", "transformers>=4.56", "pycolmap",
+  "depth-anything-3 @ git+https://github.com/ByteDance-Seed/Depth-Anything-3@3d835ec1a5802d64a8b8b15f817a1ab54809bfe4",
+  # what DA3 actually imports (its declared list also pulls a web UI, xformers and numpy<2; see tool.uv below)
+  "addict", "e3nn", "einops", "evo", "imageio", "moviepy==1.0.3", "omegaconf", "plyfile", "safetensors", "trimesh",
+]
+api = ["anthropic>=0.40"]
 dev = ["pytest>=8"]
 
 [project.scripts]
 roomscope = "roomscope.cli:app"
+
+[tool.uv]
+# Depth Anything 3 declares dependencies we never use and two that break a Mac install: xformers (no macOS
+# build) and numpy<2 (DA3 runs on numpy 2). "never" markers drop them; its web/export stack is stubbed in
+# frontends/da3_worker.py.
+override-dependencies = [
+  "xformers ; sys_platform == 'never'",
+  "fastapi ; sys_platform == 'never'",
+  "uvicorn ; sys_platform == 'never'",
+  "pre-commit ; sys_platform == 'never'",
+  "numpy>=1.26",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [build-system]
 requires = ["hatchling"]

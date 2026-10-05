@@ -20,7 +20,9 @@ Weights are fetched into the Hugging Face cache, never into the repo.
 from __future__ import annotations
 
 import gc
+import importlib.util
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -474,7 +476,7 @@ def fuse_sfm_depth(views: list[dict], names: list[str], sfm: dict, image_sizes: 
 # ---------------------------------------------------------------- Depth Anything 3 (default)
 
 def _da3_job(job: dict, cache: Path | None, tag: str) -> dict:
-    """Run frontends/da3_worker.py in .venv-da3 (cached by image names/sizes and job inputs)."""
+    """Run frontends/da3_worker.py in a subprocess of this interpreter (cached by image names/sizes and job inputs)."""
     import hashlib
     import json
     import subprocess
@@ -484,9 +486,9 @@ def _da3_job(job: dict, cache: Path | None, tag: str) -> dict:
     cp = None if cache is None else Path(cache) / f"da3_{tag}_{key}.npz"
     if cp is not None and cp.exists():
         return dict(np.load(cp))
-    py = ROOT / ".venv-da3" / "bin" / "python"
-    if not py.exists():
-        raise RuntimeError(f"Depth Anything 3 venv missing at {py}; see README (or set ROOMSCOPE_RECON=mapanything)")
+    py = sys.executable
+    if importlib.util.find_spec("depth_anything_3") is None:
+        raise RuntimeError("Depth Anything 3 is not installed; see README, Install (video and photo tiers)")
     with tempfile.TemporaryDirectory() as td:
         jp, op = Path(td) / "job.json", Path(td) / "out.npz"
         jp.write_text(json.dumps(job))

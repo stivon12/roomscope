@@ -4,7 +4,7 @@
 
 For n frames of an ARKitScenes .mov: frame i has the timestamp of .pincam i (same count as video frames),
 which names the matching lowres_depth / confidence PNGs. DA3METRIC-LARGE (frontends/da3_worker.py, run in
-.venv-da3) predicts metric depth with the frame's own focal length; its median ratio to the LiDAR depth
+a subprocess) predicts metric depth with the frame's own focal length; its median ratio to the LiDAR depth
 (confidence 2, corrected by the held-out depth scale) over the frame's pixels is that frame's scale
 error. Reported: median across frames and the spread, i.e. how far one video's median would be off.
 Only frames stored in sensor orientation (not auto-rotated by the decoder) are used, so pixels align.
@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -63,7 +64,7 @@ def main():
     cap.release()
     (tmp / "jobs.json").write_text(json.dumps({"mode": "mono_metric", "images": [j[0] for j in jobs],
                                                "K": [j[1] for j in jobs]}))
-    subprocess.run([str(ROOT / ".venv-da3/bin/python"), "-m", "roomscope.frontends.da3_worker",
+    subprocess.run([sys.executable, "-m", "roomscope.frontends.da3_worker",
                     str(tmp / "jobs.json"), str(tmp / "da3.npz")], check=True)
     z = np.load(tmp / "da3.npz")
     ratios = []

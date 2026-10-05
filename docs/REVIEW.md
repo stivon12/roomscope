@@ -276,7 +276,7 @@ grep -n "convert(\"RGB\").save" src/roomscope/frontends/photo.py; grep -n "Image
 
 ## 7. MapAnything → Depth Anything 3 (2026-10-05)
 
-Default reconstruction for the video and photo tiers is now Depth Anything 3. It uses DA3-BASE (0.12 B) for multi-view and pose-conditioned depth, and DA3METRIC-LARGE (0.35 B) for metric scale. Both are Apache-2.0 and run on the Mac GPU (MPS) in `.venv-da3`. Setting `ROOMSCOPE_RECON=mapanything` restores the old path.
+Default reconstruction for the video and photo tiers is now Depth Anything 3. It uses DA3-BASE (0.12 B) for multi-view and pose-conditioned depth, and DA3METRIC-LARGE (0.35 B) for metric scale. Both are Apache-2.0 and run on the Mac GPU (MPS) in a subprocess of the main environment. Setting `ROOMSCOPE_RECON=mapanything` restores the old path.
 
 The figures below come from these commands, run on 2026-10-05:
 - `bench/video_eval.py`, writing `out/video_eval/summary_{mapanything,da3}.json`;

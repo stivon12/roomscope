@@ -1,10 +1,11 @@
 """Depth Anything 3 (ByteDance, Apache-2.0 checkpoints only), run in its OWN venv.
 
 DA3's package imports pycolmap (pycolmap + torch abort Python on macOS: duplicate libomp) and a set of
-export/UI libraries we never call, so it cannot share the main environment. It lives in .venv-da3 and
-is called as a subprocess by frontends/recon.py and bench/scale_cues.py:
+export/UI libraries we never call. They are stubbed below, so DA3 is installed without its declared
+dependencies into the main environment (README) and runs as a subprocess of the same interpreter, called
+by frontends/recon.py and bench/scale_cues.py:
 
-    .venv-da3/bin/python -m roomscope.frontends.da3_worker <job.json> <out.npz>
+    python -m roomscope.frontends.da3_worker <job.json> <out.npz>
 
 job.json:
   {"mode": "mono_metric" | "multiview" | "posed",

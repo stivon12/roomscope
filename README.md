@@ -7,30 +7,32 @@ One command per capture, three capture tiers sharing one output contract (`schem
 |---|---|---|
 | **LiDAR** | Stray Scanner export, or an ARKitScenes raw scene | Works. Ceiling within 1 cm on 3/3 held-out captures; walls with both neighbours observed: median length error 1.4 cm; calibrated intervals (leave-one-room-out coverage 0.94). |
 | **Photo** | one folder of 2–8 photos per room | Runs end to end. Wall lengths +4 % / +1 % / −3 % on three rooms; **ceiling height unreliable** (eye-level photos rarely show the ceiling); not yet calibrated. |
-| **Video** | one walkthrough video | Runs end to end; **not accurate yet** (MapAnything scale and pose consistency; see `docs/RESEARCH.md` §4, §7). |
+| **Video** | one walkthrough video | Runs end to end (COLMAP poses + Depth Anything 3 depth); **not accurate yet**. On multi-room walks COLMAP splits the walk into several pieces and only the largest is kept, without a warning (open; see `benchmark/raw/MANIFEST.md`). |
 
 What is measured and what is not is tracked in `docs/COMPLIANCE.md`; the fix loop is in `fix/`.
 
-## Install (macOS Apple Silicon or Linux, Python 3.11)
+## Install (macOS Apple Silicon or Linux, Python 3.11+, one environment)
+
+Needs [uv](https://docs.astral.sh/uv/) (`brew install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`).
 
 ```bash
 git clone <this repo> roomscope && cd roomscope
-uv venv --python 3.11 .venv
-uv pip install --python .venv/bin/python -e ".[models,dev]"
+uv sync --extra video --extra dev     # one .venv for every tier; LiDAR only: uv sync --extra dev
+scripts/fetch_weights.sh              # ~2.9 GB into ~/.cache/huggingface (video/photo tiers, labels)
+.venv/bin/roomscope doctor            # checks packages, GPU and weights; says which tiers are ready
 ```
 
-LiDAR tier needs nothing else. Photo and video tiers also need MapAnything (Apache-2.0 weights):
+Measured on an M1 MacBook (16 GB) with empty caches (2026-10-05): `uv sync` 37 s, weights 182 s (2.9 GB), `pytest` 40 s: **4 min 20 s** in total. `.venv` is 1.4 GB. Download time scales with your connection.
 
-```bash
-git clone https://github.com/facebookresearch/map-anything.git third_party/map-anything
-git -C third_party/map-anything checkout 3d10cf7a3016fc0f9bb13a071ee66c47b10be0d9
-uv pip install --python .venv/bin/python -e third_party/map-anything
-scripts/fetch_weights.sh          # ~4.9 GB into ~/.cache/huggingface, never into the repo
-```
+Why there is only one environment although two of its packages clash: `pycolmap` and `torch` each ship
+an OpenMP runtime, and loading both in one Python process aborts it on macOS. They are never loaded
+together: COLMAP (`frontends/sfm_worker.py`) and Depth Anything 3 (`frontends/da3_worker.py`) run as
+subprocesses of the same interpreter. Depth Anything 3 is installed from a pinned commit; its declared
+dependencies include `xformers` (no macOS build), `numpy<2` and a web UI, which `[tool.uv]` in
+`pyproject.toml` drops; the worker stubs the modules it never calls.
 
-Optional, video SfM experiment only: `uv pip install --python .venv/bin/python pycolmap`.
-Do not import `pycolmap` and `torch` in the same Python process on macOS (duplicate OpenMP runtime
-aborts Python); the pipeline runs COLMAP in a subprocess for that reason.
+The old MapAnything path (`ROOMSCOPE_RECON=mapanything`) is optional: clone and install
+`third_party/map-anything` at commit `3d10cf7a` and run `scripts/fetch_weights.sh --mapanything` (+4.9 GB).
 
 ## Capture
 
@@ -76,7 +78,7 @@ pytest -q tests/
 ## Layout
 
 ```
-src/roomscope/frontends/   lidar.py  video.py  photo.py  recon.py (MapAnything)  sfm_worker.py (COLMAP)
+src/roomscope/frontends/   lidar.py  video.py  photo.py  recon.py  da3_worker.py (Depth Anything 3)  sfm_worker.py (COLMAP)
 src/roomscope/core/        layout.py (planes, rooms, polygons)  drift.py  depth_calib.py  calibrate.py  stitch.py
 src/roomscope/eval/        laser.py (Faro scoring)  depth_bias.py  pose_drift.py
 bench/                     benchmark, calibration, ablation and fix-loop scripts
@@ -91,7 +93,9 @@ Weights, datasets and run outputs are never committed (`.gitignore`); folder lay
 
 | Model | Used for | Licence |
 |---|---|---|
-| MapAnything (`facebook/map-anything-apache`, 1.23 B) | photo and video depth + poses | Apache-2.0 |
-| COLMAP / pycolmap (SIFT only) | video SfM experiment (opt-in) | BSD |
+| Depth Anything 3 (`depth-anything/DA3-BASE` 0.12 B, `DA3METRIC-LARGE` 0.35 B) | photo and video depth, metric scale | Apache-2.0 |
+| COLMAP / pycolmap (SIFT only) | video camera poses | BSD |
+| EoMT-L (`tue-mps/ade20k_semantic_eomt_large_512`) | indoor semantic labels (in progress) | MIT |
+| MapAnything (`facebook/map-anything-apache`, 1.23 B) | old photo/video path, opt-in | Apache-2.0 |
 
 Every result records the models it used in `meta.models`.

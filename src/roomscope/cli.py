@@ -71,5 +71,47 @@ def validate(result: Path = typer.Argument(..., exists=True)):
     typer.echo(f"{result}: valid")
 
 
+WEIGHTS = ["depth-anything/DA3-BASE", "depth-anything/DA3METRIC-LARGE", "tue-mps/ade20k_semantic_eomt_large_512"]
+# each check runs in its own interpreter: pycolmap and torch must never share a process on macOS
+CHECKS = {
+    "core (LiDAR tier)": "import numpy, scipy, cv2, open3d, shapely, skimage, yaml, jsonschema",
+    "torch": "import torch; print('mps' if torch.backends.mps.is_available() else 'cpu')",
+    "Depth Anything 3": "import roomscope.frontends.da3_worker; import depth_anything_3.api",
+    "COLMAP (pycolmap)": "import pycolmap",
+    "EoMT (transformers)": "from transformers import EomtForUniversalSegmentation",
+}
+
+
+@app.command()
+def doctor():
+    """Check the install: Python, packages per tier, GPU, model weights. Exit code 1 if the LiDAR tier
+    cannot run; video/photo problems are reported but do not fail."""
+    import subprocess
+    import sys
+
+    ok_core = sys.version_info >= (3, 11)
+    typer.echo(f"{'ok' if ok_core else 'FAIL':4}  python {sys.version.split()[0]} (needs >= 3.11)")
+    for name, code in CHECKS.items():
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        good = r.returncode == 0
+        if name.startswith("core"):
+            ok_core &= good
+        note = r.stdout.strip() if good else (r.stderr.strip().splitlines() or ["failed"])[-1]
+        status = "ok" if good else ("FAIL" if name.startswith("core") or "ModuleNotFound" not in note else "--")
+        if status == "--":
+            note = "not installed (uv sync --extra video)"
+        typer.echo(f"{status:4}  {name}{': ' + note if note else ''}")
+    try:
+        from huggingface_hub import try_to_load_from_cache
+        for repo in WEIGHTS:
+            hit = isinstance(try_to_load_from_cache(repo, "model.safetensors"), str)
+            typer.echo(f"{'ok' if hit else 'miss':4}  weights {repo}" + ("" if hit else "  (scripts/fetch_weights.sh)"))
+    except ImportError:
+        typer.echo("miss  weights: huggingface_hub not installed (video/photo extra)")
+    typer.echo("LiDAR tier: " + ("ready" if ok_core else "NOT ready") +
+               "; video/photo tiers need every line above to be ok")
+    raise typer.Exit(0 if ok_core else 1)
+
+
 if __name__ == "__main__":
     app()
