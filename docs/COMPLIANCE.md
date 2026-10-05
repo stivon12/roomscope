@@ -29,7 +29,7 @@ Status: ✅ done and verified · 🟡 partial · ⬜ not started · ❌ known fa
 | G.4 | Drift handling + on/off ablation of the stitched footprint | `src/roomscope/core/drift.py`, `out/bench/drift_off` | `TECHNICAL_REPORT.md` §3 | 🟡 plane-anchored pose graph; do-no-harm on laser poses; YC footprint ablation in the report |
 | G.5 | Photo whole-property stitch, ±8 % footprint, calibrated | `bench/gates.py` | `bench/results/gates.md` | ❌ 6 of 6 rooms reconstructed but only 1 connected: no doors detected at the photo tier; footprint not measurable (no ground truth) |
 | G.6 | Photo ±8 % / video ±3 % walls; calibration at every tier | `bench/gates.py`, `bench/calibrate.py` | `bench/results/gates.md` | ❌ accuracy not met (scale off 3–12 %); calibration met at every tier after Fix 3 (wide) |
-| 3.1 | Head-to-head vs a consumer app on 2 rooms | — | — | ⬜ needs Polycam captures of the benchmark rooms |
+| 3.1 | Head-to-head vs a consumer app on 2 rooms | `bench/head_to_head.py` | `bench/results/head_to_head.md` | ❌ measured, gate missed: beat or tie on 6/14 dimensions (43 %, gate 70 %). Polycam's own mesh exports shipped with MuSHRoom (honka, coffee_room; version not recorded); honka 5/7, coffee_room 1/7 (our wall placement) |
 | 4.1 | Fix declaration (worst gate, root cause, prediction) | `fix/DECLARATION.md` | doc, tags `fix2-before`, `fix3-before` | ✅ fixes 1–3 |
 | 4.2 | Fix shipped; regenerable before/after + diff | `fix/`, `bench/gates.py`, `bench/calibrate.py` | tags `fix3-before` / `fix3-after` | ✅ Fix 3: coverage 0/7 → 7/7 (tags `fix3-before` / `fix3-after`); widths missed the prediction, explained |
 | 5.1 | Incremental commit history | git log | — | ✅ |
