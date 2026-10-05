@@ -52,6 +52,16 @@ scored by `bench/mushroom_eval.py` (rigid registration to gt_pd.ply; icp_iphone.
 |---|---|---|---|---|---|---|
 | vr_room (5.1 x 4.4 m) | long | 422 | -1.28 cm (covered) | 7/7 | 2.08 cm | 0.9858 (-1.42 %) |
 | vr_room | short | 186 | -0.45 cm (covered) | 5/5 | 1.37 cm | 0.9880 (-1.20 %) |
+| honka | long | 334 | -0.95 cm (covered) | 8/8 | 6.06 cm (max 21.0) | |
+| honka | short | 157 | -1.36 cm (covered) | 8/8 | 3.05 cm | |
+| coffee_room | long | 388 | -1.94 cm (covered) | 4/4 | 6.07 cm | |
+| coffee_room | short | 134 | **-77.4 cm, NOT covered** | 7/8 | 8.36 cm | |
 
 (2026-10-05, unknown-device prior applied; scale from `roomscope calibrate-depth --dry-run` with the laser
 ceiling 3.5157 m. iPad Pro (2020) for comparison: 0.9883.)
+
+coffee_room short is confident garbage: the room has two ceiling levels (a plain section at 2.40 m over
+the door end, suspended tiles at 3.22 m elsewhere; laser reference at the centroid 3.22 m). The short capture
+barely looked up (steepest frame ~6 deg above level), saw the tiles only at grazing angles (~540 points spread
+over 0.2 m), so `pick_level` rejected that level and reported 2.45 m as observed with a +-5 cm interval.
+Root cause: `ceiling_height` assumes one flat ceiling per room. Open.
