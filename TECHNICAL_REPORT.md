@@ -48,10 +48,10 @@ intervals then carry that difference.
 | Hardware | any iPhone 15+ | any iPhone 15+ | iPhone Pro (LiDAR) |
 | Capture (`CAPTURE_PROTOCOL.md`) | Camera app, 2–8 photos per room, one folder per room | Camera app, one walkthrough | Stray Scanner (free), one recording through all rooms |
 | Poses / scale from | DA3 multi-view / DA3-Metric | COLMAP / DA3-Metric | ARKit / LiDAR depth |
-| Ceiling vs laser | 7–28 cm off on 3 rooms | 8–28 cm off (3–12 %) on 4 | **4/4 within 1.5 cm** (median 0.9 cm); repeat spread 0.4–0.6 cm |
+| Ceiling vs laser | 7–28 cm off on 3 rooms | 8–28 cm off (3–12 %) on 4 | iPad: 2/2 within 0.8 cm; MuSHRoom iPhone: −2.7 / −3.3 cm (ceilings read 2.4 % short, shared by Polycam); repeat spread 0.5–0.6 cm |
 | Wall length vs laser | too few clean walls to state | too few clean walls to state | median 8.7 cm on 21 walls (wider ARKitScenes set) |
-| Brief tolerance | ±8 % walls: **not met** | ±3 % walls: **not met** | (ceiling 1.5 cm: met) |
-| Intervals cover the truth | 4/4, at ±103 % | 4/4, at ±25 % | 14/16 |
+| Brief tolerance | ±8 % walls: **not met** | ±3 % walls: **not met** | (ceiling 1.5 cm: 2/4) |
+| Intervals cover the truth | 4/4, at ±103 % | 4/4, at ±25 % | 10/12 (ceiling ±3.5 cm) |
 | Multi-room | 6 rooms reconstructed; 1 connected (§7) | 1 room: COLMAP splits the walk | 6 rooms, with adjacency |
 | Runtime (M1, 16 GB) | ~15 s per room (~90 s cold) | ~4–5 min | ~35 s per room cold, plus ~2.5 min damage |
 
@@ -94,7 +94,8 @@ so footprint accuracy is not scored. Next: tape-measure the apartment (`benchmar
 
 | Source | Size | Treatment |
 |---|---|---|
-| Depth reads short | −1.1 to −1.3 % of range (iPad); −3.6 cm on a 3 m ceiling | divided by a scale fitted on other captures; 1 % prior on unknown devices |
+| Depth reads short | −1.1 to −1.3 % of range (iPad); −3.6 cm on a 3 m ceiling | divided by a per-device scale measured on other captures (iPad 0.9883; MuSHRoom iPhone 0.9968 from held-out vr_room); 1 % prior on unknown devices |
+| Ceiling depth on the MuSHRoom iPhone | −2.4 % at every angle and range (walls within 0.2 %); Polycam shows the same | reported, not corrected: no held-out laser ceiling for this phone |
 | Depth noise on matched surfaces | 0–3 cm | averaged by plane fits |
 | ARKit pose error | ~2 cm median | plane-anchored drift correction (do no harm) |
 | **Wall placement**: wall taken from a furniture front or the visible-floor edge | **10–60 cm on some walls** | not fixed (`docs/WALL_ERRORS.md`); dominates the wall error |
@@ -119,11 +120,11 @@ the laser surface nearest our edge, which scored an edge on a cabinet front agai
 - **Coverage check:** leave-one-room-out, with Clopper–Pearson intervals.
 - **Wall bins:** walls whose two neighbouring walls are well observed get their own quantile (Mondrian bins,
   fix 2).
-- **Disjoint data:** video and photo calibration rooms never include a benchmark room. LiDAR does (see the table), so its 14/16 is optimistic.
+- **Disjoint data:** video and photo calibration rooms never include a benchmark room. LiDAR is now refit the same way (rooms 421337 and honka excluded).
 
 | Tier | Fitted on | Benchmark coverage (nominal 0.9) | Typical half-width | Note |
 |---|---|---|---|---|
-| LiDAR | 9 ARKitScenes captures (7 rooms) | 14/16 | ceiling ±2–6 cm; walls ±15–20 cm (median) | fitted before the benchmark set existed: it includes benchmark room 421337, and used the old wall reference. Refit pending |
+| LiDAR | 6 ARKitScenes rooms + MuSHRoom vr_room, coffee_room (disjoint) | 10/12 | ceiling ±3.5 cm; walls ±17–48 cm | structural wall reference; two-level laser ceilings are not scored (as stepped walls) |
 | Video | 10 captures, 8 rooms (disjoint) | 4/4 | ±25 % | held-out coverage 1.00 [0.54–1.00] (n=10) |
 | Photo | 8 captures, 7 rooms (disjoint) | 4/4 | ±103 % | held-out coverage not computable (one ceiling per room) |
 
@@ -189,9 +190,8 @@ produce rooms; LiDAR walls are unchanged.
   observed ceiling and under 20 % of walls observed. It flags an outdoor walk and a glass-walled office, and passes
   all 29 benchmark runs. Flagged captures still produce output, with warnings.
 - **Untested hardware:** no iPhone 15 or newer is in the benchmark.
-- **Head-to-head vs Polycam** (`bench/results/head_to_head.md`): ours beats Polycam on ceiling height in both
-  rooms; gate missed overall (beat or tie on 6/12 dimensions, 50 %, gate 70 %). Snapping furniture-front edges to
-  the structural wall behind them moved the two worst coffee_room walls from −39.5 / −11.4 cm to +1.3 / −1.6 cm;
-  the remaining losses are within 0.7–2.7 cm of Polycam, a fitting-precision gap rather than a placement error.
+- **Head-to-head vs Polycam** (`bench/results/head_to_head.md`): beat or tie on 9 of 13 dimensions (69 %, gate 70 %).
+  Structural-wall snapping and the measured per-device depth scale put both rooms' wall positions within 1.2 cm of the laser
+  except one 0.42 m notch in honka, still taken from the floor boundary (−19.8 cm), which costs three dimensions.
 - **Benchmark gaps** (next step: a physical capture visit): no staged-damage room; no ground truth for the
   multi-room capture; no opening ground truth (the opening gate is unmeasured).

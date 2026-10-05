@@ -20,18 +20,19 @@ until `roomscope calibrate-depth` measures it from one tape distance.
 
 | Quantity | LiDAR | Video | Photo |
 |---|---|---|---|
-| Ceiling height | 4/4 rooms within 1.5 cm (median 0.9 cm, max 1.4 cm). Spread across repeat captures 0.4–0.6 cm | 8–28 cm off (3–12 %) on 4 captures | 7–28 cm off on 3 captures |
+| Ceiling height | iPad: 2/2 within 0.8 cm; MuSHRoom iPhone: −2.7 / −3.3 cm (reads ceilings 2.4 % short; Polycam −3.1 cm). Spread across repeat captures 0.5–0.6 cm | 8–28 cm off (3–12 %) on 4 captures | 7–28 cm off on 3 captures |
 | Wall length, clean laser reference | median 8.7 cm on 21 walls, 9 over 10 cm (ARKitScenes). Errors come from wall placement, not depth (`docs/WALL_ERRORS.md`) | too few cleanly referenced walls to state; wall planes 10–100 cm off | too few cleanly referenced walls to state |
 | Brief tolerance | (ceiling 1.5 cm) | walls ±3 %: **not met** | walls ±8 %: **not met** |
-| Repeatability (two captures, same room) | 4/12 walls within max(1 cm, 0.5 %) | 0/4 | 0/2 |
-| Intervals cover the truth (nominal 90 %) | 14/16 | 4/4, at ±25 % (Fix 3) | 4/4, at ±103 % (eye-level photos rarely see the ceiling) |
+| Repeatability (two captures, same room) | 3/14 walls within max(1 cm, 0.5 %) | 0/4 | 0/3 |
+| Intervals cover the truth (nominal 90 %) | 10/12 (ceiling ±3.5 cm) | 4/4, at ±25 % (Fix 3) | 4/4, at ±103 % (eye-level photos rarely see the ceiling) |
 | Multi-room | splits rooms; the YC apartment gives 6 rooms | **one room only**: COLMAP breaks a multi-room walk into pieces and keeps the largest | all 6 YC rooms reconstructed, 1 connected: no doors detected at this tier, so 5 rooms are placed aside (stitch gate not met) |
 | Openings | detected, not measured (no opening ground truth) | as LiDAR | as LiDAR |
 | Damage | runs: multi-view vote on the LiDAR surfaces | not run (no per-frame depth) | not run |
 
 ## What drives each tier's error
 - **LiDAR:**
-  - **Depth reads short:** iPad 1.2 %, corrected per device; an unknown device gets a 1 % prior.
+  - **Depth scale per device:** iPad −1.2 %, MuSHRoom iPhone −0.3 % (walls), each measured on held-out laser
+    captures; an unknown device gets a 1 % prior. The MuSHRoom iPhone also reads ceilings 2.4 % short (not corrected).
   - **The real limit is wall placement:** a wall is sometimes taken from a furniture front or from the
     visible floor edge.
 - **Video and photo:** metric scale comes from a monocular/multi-view depth model (Depth Anything 3).

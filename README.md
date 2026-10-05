@@ -6,7 +6,7 @@ Every accuracy number below is scored against Faro laser scans (ARKitScenes, MuS
 
 | Tier | Input | Status |
 |---|---|---|
-| **LiDAR** | Stray Scanner export, or an ARKitScenes raw scene | Runs end to end, with damage regions, concealed-damage flags and scope items. **Ceiling:** within 1 cm on 3/3 held-out captures; ceiling gate (≤ 1.5 cm) met on 4/4 benchmark rooms, repeat spread 0.4–0.6 cm. **Walls:** median wall-length error 8.7 cm on 21 walls scored against an independent structural laser reference (9 over 10 cm). That reference replaced an earlier scorer that matched our own edges and reported 1.4 cm (`docs/WALL_ERRORS.md`). Next: refit the interval calibration against the new reference. |
+| **LiDAR** | Stray Scanner export, or an ARKitScenes raw scene | Runs end to end, with damage regions, concealed-damage flags and scope items. **Ceiling:** within 1 cm on 3/3 held-out captures; iPad rooms within 0.3–0.8 cm on the benchmark, repeat spread 0.5–0.6 cm; the MuSHRoom iPhone reads ceilings about 2.4 % short (honka −2.7 / −3.3 cm, Polycam −3.1 cm), so the ceiling gate is met on 2/4 rooms. **Walls:** median wall-length error 8.7 cm on 21 walls scored against an independent structural laser reference (9 over 10 cm). That reference replaced an earlier scorer that matched our own edges and reported 1.4 cm (`docs/WALL_ERRORS.md`). Intervals refit on rooms disjoint from the benchmark (ceiling about ±3.5 cm). Depth scale measured per device (`config/depth_scale.yaml`). |
 | **Photo** | one folder of 2–8 photos per room | Runs end to end on per-room folders; all 6 YC apartment rooms reconstructed. Calibrated intervals cover the laser value. **Known limits:** metric scale off by 3–12 % (ceilings 7–28 cm off), so the ±8 % wall gate is not met; no doors are detected at this tier, so 1 of 6 rooms is connected and the whole-property stitch is not met yet. |
 | **Video** | one walkthrough video | Runs end to end (COLMAP poses + Depth Anything 3 depth). Calibrated intervals cover the laser value. **Known limits:** metric scale off by 3–12 % (ceilings 8–28 cm off), so the ±3 % wall gate is not met; on multi-room walks COLMAP splits the walk and the largest piece is kept. |
 
@@ -15,7 +15,7 @@ Every accuracy number below is scored against Faro laser scans (ARKitScenes, MuS
 - **Calibration at every tier:** Fix 3 took video/photo interval coverage from 0/7 to 7/7, meeting its declared prediction.
 - **Drift correction** recovers a bathroom that merges into the hallway without it (report §3).
 - **Damage, concealed-damage flags and scope items** from rule tables with public citations (EPA, BRE, 40 CFR 745).
-- **Head-to-head vs Polycam:** beats it on ceiling height in both rooms; overall 6/12 dimensions (50 %, gate 70 %); after the structural-wall snapping fix every coffee_room wall is within 4.1 cm of the laser, and the remaining losses are within 0.7–2.7 cm of Polycam.
+- **Head-to-head vs Polycam:** beat or tie on 9 of 13 dimensions (69 %, gate 70 %); wall positions in both rooms within 1.2 cm of the laser on all but one short notch, ceiling better than Polycam in honka.
 
 **[Technical report](TECHNICAL_REPORT.md)** ([PDF](TECHNICAL_REPORT.pdf)): architecture, tiers and device matrix, drift, error budget, calibration, fix loop, failure modes.
 
