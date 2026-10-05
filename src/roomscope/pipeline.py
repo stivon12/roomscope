@@ -341,6 +341,29 @@ def _rename_room(obj, old: str, new: str):
     return obj
 
 
+ENCLOSED_MIN_WALL_SEEN = 0.2   # mean observed wall fraction below which a ceiling-less "room" is not an enclosure
+
+
+def scope_check(result: dict) -> dict:
+    """Is this an indoor space? A room is an enclosure when its ceiling was observed or its walls were (mean observed
+    wall fraction >= ENCLOSED_MIN_WALL_SEEN). Measured: indoor rooms 0.46-0.95 with a ceiling; an outdoor walk
+    around a building and a glass-walled office (vslamlab) 0.00-0.12 with no ceiling anywhere. Non-enclosures are
+    named in the warnings; if no room is one, the capture is reported as not a recognised indoor space."""
+    open_rooms = []
+    for rm in result["rooms"]:
+        seen = [w.get("observed_fraction", 0.0) for w in rm["walls"]]
+        mean_seen = sum(seen) / len(seen) if seen else 0.0
+        if rm["ceiling_height"].get("observed", True) is False and mean_seen < ENCLOSED_MIN_WALL_SEEN:
+            open_rooms.append(rm["id"])
+            result["warnings"].append(f"{rm['id']}: no ceiling observed and only {mean_seen:.0%} of its walls seen: not an "
+                                      "enclosed room (outdoors, glass walls, or not scanned); its dimensions are not reliable")
+    indoor = bool(result["rooms"]) and len(open_rooms) < len(result["rooms"])
+    if result["rooms"] and not indoor:
+        result["warnings"].append("capture not recognised as an indoor space: no room has an observed ceiling or walls; "
+                                  "the plan below is not a floor plan")
+    return {"indoor": indoor, "not_enclosed_rooms": open_rooms}
+
+
 def _save_cloud(out: Path, cloud, align, name: str = "cloud.npz"):
     keep = np.unique(np.floor(cloud.P / 0.05).astype(np.int64), axis=0, return_index=True)[1]
     np.savez_compressed(out / name, P=cloud.P[keep].astype(np.float32), N=cloud.N[keep].astype(np.float32),
@@ -443,6 +466,7 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, loa
         "damage_regions": [], **body, "concealed_flags": [], "scope_items": [],
         "warnings": sorted(set(warnings)),
     }
+    result["meta"]["scope_check"] = scope_check(result)
     if calibrate:
         from .core import calibrate as Cal
         result = Cal.apply(result, tier)
