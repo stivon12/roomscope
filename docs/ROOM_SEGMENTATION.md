@@ -97,5 +97,13 @@ Research brief and findings: see "Research" below (filled in by the research age
 - RoomPlan CapturedStructure: https://developer.apple.com/documentation/roomplan/capturedstructure.md
 - Unverified: the ToMATo gap-selection citation (Chazal et al. 2013); Ochmann 2016, Ikehata 2015 and Armeni 2016 details.
 
-## Decision status
-The patch-based doorway rule (uncommitted) is abandoned. Nothing is implemented yet. SCP is the proposed next step, pending the user's decision.
+## Decision status (updated 2026-10-05)
+- **SCP is implemented** (`core/rooms_scp.py`, commits 2254c4e, b88b3c1). The threshold band was frozen on the Bormann maps before use on our captures: furnished recall/precision 85.6 / 95.0 %.
+- **Rooms kept only if entered:** a region the camera never walked into (seen through a doorway) is reported in the warnings, not as a room (Turner & Zakhor 2014).
+- **The rooms form a consistent partition** (1d34886). Every step after SCP used to treat each room on its own, and room outlines overlapped by up to 2.3 m². Now:
+  - contested unseen floor goes to the nearest room;
+  - an edge facing another room's floor is a shared open boundary, never snapped to a wall;
+  - any remaining overlap is reconciled jointly, and crossing wall faces are reported as drift.
+- **Open boundaries become openings and adjacency** (0917f33).
+- **42897545 splitting in two is correct, not a false split.** The capture starts on carpet in an adjacent room and ends in a tiled bathroom (video frames checked). ARKitScenes calls it one room because the scan centres on the bathroom.
+- **Known failure, open: corridors.** A corridor is narrow everywhere: its clearance maximum (half its width, about 0.5 m) is below r_min, and its ratio to the door saddle (about 1.3) is below the band. So SCP gives it no seed, and it is absorbed into a neighbouring room (c7d28f72c6: the 1.1 m corridor joins Room 1). This is a property of the clearance-persistence cue, not a threshold issue. A corridor is defined by its shape (a long ridge of near-constant clearance), so it needs a medial-axis cue. Bormann's ground truth labels corridors as rooms, so a fix can be measured there before it touches our captures.
