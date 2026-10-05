@@ -144,9 +144,8 @@ This fix makes the intervals honest. It does not make video or photo measurement
   captures (8 rooms).
 - **After numbers:** `python bench/gates.py recalibrate --tiers video,photo` re-applies the new calibration to
   the before-runs (`out/bench/before`), then `python bench/gates.py score`.
-- **Why recalibrate instead of rerun:** a full rerun is about 4 h with the jobs held to the efficiency cores, so
-  the fix's only changed input, the calibration, was re-applied to the finished runs. The geometry code is
-  unchanged.
+- **Why recalibrate instead of rerun:** the calibration is the fix's only changed input and the geometry code is
+  unchanged, so the calibration was re-applied to the finished runs.
 - **Check that this is equivalent:** one capture was fully rerun (video 42444946). It gives the same ceiling
   interval width, ±0.69 m vs ±0.69 m, and both contain the laser value. Its geometry differs by 1 cm on the
   ceiling and 23 cm on one wall, because COLMAP is not deterministic between runs.
@@ -158,8 +157,8 @@ This fix makes the intervals honest. It does not make video or photo measurement
 | Median ceiling half-width | 5–15 % of the value | video **±25 %**, photo **±103 %**: **missed, much wider** |
 | Accuracy gates (±3 % / ±8 %) and repeatability | unchanged | unchanged (video 0/4, photo 0/2 repeatability; walls not measurable) |
 
-**Why the widths missed.** I predicted 5–15 % from the benchmark's own errors (3–12 %). The calibration rooms
-are worse:
+**Why the widths missed.** The 5–15 % prediction came from the benchmark's own errors (3–12 %). The calibration
+rooms are harder:
 - **Video ceilings:** median error 20 cm, so the 90 % quantile is about 25 %.
 - **Photo ceilings:** median error 52 cm, with some ceilings almost entirely wrong. Eye-level photos rarely see
   the ceiling.
@@ -167,13 +166,12 @@ are worse:
 **Two changes made while shipping, both labelled in the output:**
 1. **Walls borrow the ceiling's relative quantile.** With fewer than 5 laser-referenced walls (video 2,
    photo 0), walls use the ceiling's relative quantile (|error| ÷ value). The first version transferred the
-   normalised quantile instead. Its normaliser is the measurement's own fit noise, about 0.5 cm for a ceiling
-   but 5 cm for a wall, so it produced a −1.5 to 7.3 m wall. It was caught before any after-run and replaced.
+   normalised quantile; its normaliser is the measurement's own fit noise (about 0.5 cm for a ceiling, 5 cm for a
+   wall), so it produced a −1.5 to 7.3 m wall. Caught before any after-run and replaced.
 2. **Lengths are floored at 0.**
 
-**What this fix does and does not do.** Video and photo now say how unsure they are; before, they claimed
-±1 cm and were wrong by 10–30 cm. They are not more accurate. Photo intervals of ±100 % say "we cannot measure
-this from these photos", which is true.
+**Result.** Video and photo now state their uncertainty correctly: before, they claimed ±1 cm and were wrong by
+10–30 cm. Accuracy is unchanged, as predicted; photo intervals of ±100 % correctly say these photos cannot
+measure ceiling height.
 
-**Next fix:** the root cause of those widths is metric scale from the RGB depth model. That is the next fix,
-not this one.
+**Next fix:** metric scale from the RGB depth model, the root cause of those widths.

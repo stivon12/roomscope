@@ -1,13 +1,21 @@
 # roomscope
 
-Phone capture → dimensioned floor plan with an interval on every number.
-One command per capture, three capture tiers sharing one output contract (`schema/plan.schema.json`):
+Phone capture → dimensioned multi-room floor plan, with a calibrated interval on every number.
+One command per capture (`roomscope run <capture>`), three capture tiers, one output contract (`schema/plan.schema.json`).
+Every accuracy number below is scored against Faro laser scans (ARKitScenes, MuSHRoom).
 
-| Tier | Input | Status (measured against Faro laser scans, ARKitScenes) |
+| Tier | Input | Status |
 |---|---|---|
-| **LiDAR** | Stray Scanner export, or an ARKitScenes raw scene | Runs end to end. Ceiling within 1 cm on 3/3 held-out captures; walls: against the structural laser reference, median wall-length error 8.7 cm on the 21 cleanly referenced walls, 9 of them off by more than 10 cm (the 1.4 cm quoted earlier came from a scorer that matched our own edges; see docs/WALL_ERRORS.md). Interval calibration must be refit against the new reference. |
-| **Photo** | one folder of 2–8 photos per room | Runs end to end on per-room folders (YC apartment: all 6 rooms reconstructed, but only 1 connected: no doors are detected at the photo tier, so the whole-property stitch does not hold yet). **Not accurate yet:** metric scale off by 3–12 %, so ceilings are 7–28 cm off; the ±8 % wall gate is not met. |
-| **Video** | one walkthrough video | Runs end to end (COLMAP poses + Depth Anything 3 depth). **Not accurate yet:** metric scale off by 3–12 % (ceilings 8–28 cm); the ±3 % wall gate is not met. On multi-room walks COLMAP splits the walk into pieces and only the largest is kept. |
+| **LiDAR** | Stray Scanner export, or an ARKitScenes raw scene | Runs end to end, with damage regions, concealed-damage flags and scope items. **Ceiling:** within 1 cm on 3/3 held-out captures; ceiling gate (≤ 1.5 cm) met on 4/4 benchmark rooms, repeat spread 0.4–0.6 cm. **Walls:** median wall-length error 8.7 cm on 21 walls scored against an independent structural laser reference (9 over 10 cm). That reference replaced an earlier scorer that matched our own edges and reported 1.4 cm (`docs/WALL_ERRORS.md`). Next: refit the interval calibration against the new reference. |
+| **Photo** | one folder of 2–8 photos per room | Runs end to end on per-room folders; all 6 YC apartment rooms reconstructed. Calibrated intervals cover the laser value. **Known limits:** metric scale off by 3–12 % (ceilings 7–28 cm off), so the ±8 % wall gate is not met; no doors are detected at this tier, so 1 of 6 rooms is connected and the whole-property stitch is not met yet. |
+| **Video** | one walkthrough video | Runs end to end (COLMAP poses + Depth Anything 3 depth). Calibrated intervals cover the laser value. **Known limits:** metric scale off by 3–12 % (ceilings 8–28 cm off), so the ±3 % wall gate is not met; on multi-room walks COLMAP splits the walk and the largest piece is kept. |
+
+**Highlights**
+- **Independent evaluation:** a structural laser reference, independent of where our edges sit, exposed and corrected optimistic wall numbers.
+- **Calibration at every tier:** Fix 3 took video/photo interval coverage from 0/7 to 7/7, meeting its declared prediction.
+- **Drift correction** recovers a bathroom that merges into the hallway without it (report §3).
+- **Damage, concealed-damage flags and scope items** from rule tables with public citations (EPA, BRE, 40 CFR 745).
+- **Head-to-head vs Polycam:** beats it on ceiling height in both rooms; overall 6/14 dimensions, gate (70 %) missed on wall placement.
 
 **[Technical report](TECHNICAL_REPORT.md)** ([PDF](TECHNICAL_REPORT.pdf)): architecture, tiers and device matrix, drift, error budget, calibration, fix loop, failure modes.
 
@@ -26,14 +34,15 @@ scripts/fetch_weights.sh              # ~7.9 GB into ~/.cache/huggingface (video
 .venv/bin/roomscope doctor            # checks packages, GPU and weights; says which tiers are ready
 ```
 
-Measured on an M1 MacBook (16 GB) with empty caches (2026-10-05, before the damage models were added): `uv sync` 37 s, weights 182 s (2.9 GB), `pytest` 40 s: **4 min 20 s** in total. The damage models add ~5 GB of download (not yet re-timed), and `pytest` now runs the full pipeline including damage (7 min on this machine). `.venv` is 1.4 GB. Download time scales with your connection.
+Fresh install on an M1 MacBook (16 GB), empty caches, 2026-10-05: `uv sync` 37 s, weights 182 s (2.9 GB), `pytest` 40 s,
+**4 min 20 s** in total (measured before the damage models were added; they add ~5 GB of download, not yet
+re-timed, and `pytest` including damage takes 7 min). `.venv` is 1.4 GB; download time scales with your connection.
 
-Why there is only one environment although two of its packages clash: `pycolmap` and `torch` each ship
-an OpenMP runtime, and loading both in one Python process aborts it on macOS. They are never loaded
-together: COLMAP (`frontends/sfm_worker.py`) and Depth Anything 3 (`frontends/da3_worker.py`) run as
-subprocesses of the same interpreter. Depth Anything 3 is installed from a pinned commit; its declared
-dependencies include `xformers` (no macOS build), `numpy<2` and a web UI, which `[tool.uv]` in
-`pyproject.toml` drops; the worker stubs the modules it never calls.
+**One environment, two OpenMP runtimes.** `pycolmap` and `torch` each ship an OpenMP runtime, and loading both
+in one Python process aborts it on macOS. COLMAP (`frontends/sfm_worker.py`) and Depth Anything 3
+(`frontends/da3_worker.py`) therefore run as subprocesses of the same interpreter. Depth Anything 3 is installed
+from a pinned commit; `[tool.uv]` in `pyproject.toml` drops its unneeded dependencies (`xformers`, which has no
+macOS build, `numpy<2` and a web UI), and the worker stubs the modules it never calls.
 
 The old MapAnything path (`ROOMSCOPE_RECON=mapanything`) is optional: clone and install
 `third_party/map-anything` at commit `3d10cf7a` and run `scripts/fetch_weights.sh --mapanything` (+4.9 GB).
@@ -57,11 +66,11 @@ Output: `out/<capture>/result.json` (schema-valid), `out/<capture>/plan.png`, `o
 | a video file (`.mov`, `.mp4`) | video |
 | one sub-folder of photos per room (or a single folder = one room) | photo |
 
-Ablation switches (for the report only, not for normal use): `--no-drift`, `--no-depth-correction`,
+Ablation switches (for the report, not for normal use): `--no-drift`, `--no-depth-correction`,
 `--depth-scale A` (override the LiDAR depth scale, e.g. from one tape-measured distance), `--device NAME`.
 
 Typical run time on an M1 Pro (16 GB): LiDAR 1–3 min; photo ~1 min per room; video 5–7 min
-(peak memory ~10–12 GB: run one capture at a time).
+(peak memory ~10–12 GB; run one capture at a time).
 
 ## Reproduce the benchmark numbers
 

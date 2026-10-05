@@ -3,11 +3,11 @@
 roomscope turns a phone capture into a dimensioned multi-room floor plan, with a calibrated interval on every
 number. One command per capture (`roomscope run <capture>`); one JSON contract (`schema/plan.schema.json`) for
 all three tiers.
-- **Measurements:** all of them are against Faro laser scans on our benchmark set (`benchmark/SET.md`, real
-  data only).
+- **Measurements:** every accuracy number is scored against Faro laser scans on a real-data benchmark set
+  (`benchmark/SET.md`).
 - **Regeneration:** `python bench/gates.py run && python bench/gates.py score` reproduces
   `bench/results/gates.md`.
-- **Gaps:** where we have no evidence, the report says so.
+- **Known limits** are stated where they apply, with the next step.
 
 ## 1. Architecture
 
@@ -52,12 +52,12 @@ intervals then carry that difference.
 | Wall length vs laser | too few clean walls to state | too few clean walls to state | median 8.7 cm on 21 walls (wider ARKitScenes set) |
 | Brief tolerance | ±8 % walls: **not met** | ±3 % walls: **not met** | (ceiling 1.5 cm: met) |
 | Intervals cover the truth | 4/4, at ±103 % | 4/4, at ±25 % | 14/16 |
-| Multi-room | 6 rooms reconstructed; only 1 connected (§7) | 1 room: COLMAP splits the walk | 6 rooms, with adjacency |
+| Multi-room | 6 rooms reconstructed; 1 connected (§7) | 1 room: COLMAP splits the walk | 6 rooms, with adjacency |
 | Runtime (M1, 16 GB) | ~15 s per room (~90 s cold) | ~4–5 min | ~35 s per room cold, plus ~2.5 min damage |
 
-**Tested phones.** The benchmark covers an iPad Pro 2020 (ARKitScenes), an iPhone 12 Pro Max (MuSHRoom) and our
-own iPhone Pro recordings. No iPhone 15 or newer was available. An unknown device runs with a 1 % depth-scale
-prior until `roomscope calibrate-depth` measures it from one tape distance. The full matrix is in
+**Tested phones.** iPad Pro 2020 (ARKitScenes), iPhone 12 Pro Max (MuSHRoom) and our own iPhone Pro
+recordings. Known limit: no iPhone 15 or newer is in the benchmark, so an unknown device runs with a 1 %
+depth-scale prior until `roomscope calibrate-depth` measures it from one tape distance. Full matrix:
 `docs/DEVICE_MATRIX.md`.
 
 ## 3. Drift handling
@@ -74,9 +74,10 @@ prior until `roomscope calibrate-depth` measures it from one tape distance. The 
 connected reconstruction. The plane step still aligns the walls themselves. It is the only correction on
 LiDAR, where poses come from ARKit.
 
-**Measured per frame against the laser.** The defaults do no harm: median camera error 2.4→2.5, 1.9→1.9 and
-2.2→1.9 cm on three captures. Rejected settings: per-fragment yaw and 20 cm matching, which made good poses
-worse (2.4→8.2 cm). Known limit: 16.6 cm of injected drift is only reduced to 15.5 cm.
+**Measured per frame against the laser.** The defaults do no harm on good poses: median camera error 2.4→2.5,
+1.9→1.9 and 2.2→1.9 cm on three captures. Per-fragment yaw and 20 cm matching were rejected because they
+degraded good poses (2.4→8.2 cm). Known limit: on the known-answer test, 16.6 cm of injected drift is reduced
+to 15.5 cm.
 
 **Ablation on the multi-room capture** (YC, 215 s, 100 m walk, `--no-drift`):
 
@@ -85,8 +86,9 @@ worse (2.4→8.2 cm). Known limit: 16.6 cm of injected drift is only reduced to 
 | drift correction on | 6 | 62.3 m² (58.7–65.9) | 4.7 → 2.8 cm |
 | off (poses as-is) | 5 | 60.1 m² (56.6–63.6) | — |
 
-With correction off, a 7.2 m² bathroom merges into the hallway; with it on, the walls agree better and the
-room is recovered. This capture has no ground truth, so which footprint is closer to the real one is unknown.
+Drift correction recovers a room: with it on, the walls agree better and a 7.2 m² bathroom is reconstructed as
+its own room; with it off, that bathroom merges into the hallway. Known limit: this capture has no ground truth,
+so footprint accuracy is not scored. Next: tape-measure the apartment (`benchmark/SET.md`).
 
 ## 4. Error budget (LiDAR tier, laser-scored)
 
@@ -102,12 +104,12 @@ room is recovered. This capture has no ground truth, so which footprint is close
 across the whole room, so it dominates every other term. Photo ceilings are often worse: eye-level photos
 rarely show the ceiling.
 
-**The honest wall number.** The scorer takes, as reference, the laser surface that reaches the ceiling,
-searched ±1 m across our edge. That reference is independent of where our edge sits; the old reference took
-the laser surface nearest our edge, so an edge on a cabinet front was scored against that cabinet front.
-- **Consistency check:** the same physical wall now gets the same reference from two captures, within 0.6 cm.
-  The old reference moved it by 29 cm.
-- **Result:** the honest LiDAR wall-length median is **8.7 cm**, not the 1.4 cm reported before.
+**Independent wall reference.** The scorer takes as reference the laser surface that reaches the ceiling,
+searched ±1 m across our edge, so it is independent of where our edge sits. It replaced a reference that took
+the laser surface nearest our edge, which scored an edge on a cabinet front against that cabinet front.
+- **Consistency check:** the same physical wall gets the same reference from two captures, within 0.6 cm
+  (the old reference moved it by 29 cm).
+- **Result:** the LiDAR wall-length median is **8.7 cm**, correcting the optimistic 1.4 cm reported before.
 
 ## 5. Calibration analysis
 
@@ -127,9 +129,8 @@ the laser surface nearest our edge, so an edge on a cabinet front was scored aga
 
 **Reading.**
 - **LiDAR** intervals are informative.
-- **Video and photo** intervals are honest but wide. Photo's ±103 % says plainly that these photos cannot
-  measure height. Before fix 3 they claimed ±1 cm and missed by 10–30 cm, which is the confident garbage the
-  brief penalises.
+- **Video and photo** intervals are honest and wide: photo's ±103 % states that these photos cannot measure
+  height. Before fix 3 they claimed ±1 cm and missed by 10–30 cm.
 - **Walls borrow from ceilings.** With fewer than 5 laser-referenced walls (video 2, photo 0), walls take the
   ceilings' *relative* quantile. This is labelled `conformal-transfer` in the output.
 - **Damage areas** are marked uncalibrated: there is no captured damaged room to calibrate on.
@@ -155,44 +156,40 @@ the shipped fix and a regenerable before/after (`fix/DECLARATION.md`, tags `fixN
    - **Results:** coverage **7/7** (predicted ≥ 6/7: met); interval width ±25 % video, ±103 % photo (predicted
      5–15 %: missed, because the calibration rooms are worse than the benchmark and photo ceilings are often
      unseen); accuracy unchanged (as predicted).
-   - **Mistake caught before the after-run:** the first version of the ceiling-to-wall transfer used the
-     normalised quantile and produced a −1.5 to 7.3 m wall.
-   - **How the after-run was made:** the calibration was re-applied to the finished runs (the full rerun takes
-     ~4 h when held to the efficiency cores to limit heat). One full rerun confirmed the same interval width.
+   - **After-run:** calibration is the fix's only changed input, so it was re-applied to the finished runs;
+     one full rerun confirmed the same interval width.
+   - **Caught before the after-run:** transferring the normalised (not relative) quantile from ceilings to
+     walls produced a −1.5 to 7.3 m wall; it was replaced.
 
-**Found while building the benchmark** (not part of the declared fix):
-- The photo tier dropped rooms whose seen floor ended in a diagonal ("no room reconstructed").
-- **Fixed:** the diagonal is a visibility limit, so it is replaced by axis-aligned legs that snap to walls.
-  All photo runs now produce rooms; LiDAR walls are unchanged.
+**Also fixed while building the benchmark:** the photo tier dropped rooms whose seen floor ended in a diagonal.
+The diagonal is a visibility limit, so it is now replaced by axis-aligned legs that snap to walls. All photo runs
+produce rooms; LiDAR walls are unchanged.
 
 ## 7. Known failure modes
 
-- **Photo stitch connects only one room.**
-  - **Symptom:** on the multi-room capture, all 6 rooms are reconstructed, but 5 are "placed aside": not
-    stitched, adjacency unknown, and the output says so.
+- **Photo stitch connects 1 of 6 rooms.** On the multi-room capture all 6 rooms are reconstructed; 5 are
+  "placed aside" (not stitched, adjacency unknown), and the output says so.
   - **Cause:** the photo tier has never detected a door. Door detection needs depth seen through the doorway,
-    and 7–8 photos per room rarely provide enough of it. Our photos for that capture also lack the doorway
-    shots the protocol asks for.
-  - **Status:** the photo-tier whole-property stitch gate is **not met**.
-- **Multi-room video:** COLMAP fragments the walk on plain walls and doorways; only the largest piece (one room)
-  is kept.
-- **Walls on furniture:**
-  - **Symptom:** a wall taken from a wardrobe, counter or cabinet front, or from where the floor stopped being
-    visible, is 10–60 cm off.
-  - **Interval gap:** `observed_fraction` can still read high there, so the interval does not widen enough.
+    which 7–8 photos per room rarely provide, and our photos for that capture lack the doorway shots the
+    protocol asks for.
+  - **Status:** photo whole-property stitch gate **not met**. Next: capture with the protocol's doorway shots.
+- **Multi-room video:** COLMAP fragments the walk on plain walls and doorways; the largest piece (one room) is kept.
+- **Walls on furniture:** a wall taken from a wardrobe, counter or cabinet front, or from where the floor stopped
+  being visible, is 10–60 cm off. `observed_fraction` can still read high there, so the interval does not widen
+  enough.
 - **Two-level ceilings:** if one level is seen only at grazing angles, the other level is reported.
 - **Mirrors, glass, wet-look surfaces:**
   - **Mitigated:** only confidence-2 LiDAR depth is kept, which drops specular and grazing returns.
   - **Mitigated:** damage needs agreement across views, so a reflection that moves between views is rejected.
   - **Not mitigated:** glass walls return no depth, so spaces behind glass merge (a glass-walled office became
     one 219 m² "room").
-- **Low light:** damage skips frames that are too dark and says so. Geometry has no low-light check, which the
-  protocol states.
-- **Out of scope:** an outdoor recording is still turned into "rooms". Nothing checks that a capture is an
-  indoor room.
+- **Low light:** damage skips frames that are too dark and says so. Geometry has no low-light check; the protocol
+  states this.
+- **Out of scope:** a scope check (`meta.scope_check`) flags captures that are not an enclosed indoor space: no
+  observed ceiling and under 20 % of walls observed. It flags an outdoor walk and a glass-walled office, and passes
+  all 29 benchmark runs. Flagged captures still produce output, with warnings.
 - **Untested hardware:** no iPhone 15 or newer is in the benchmark.
-- **Benchmark gaps** (they need physical access):
-  - no staged-damage room;
-  - no ground truth for the multi-room capture;
-  - no opening ground truth (the opening gate is unmeasured);
-  - no Polycam head-to-head yet.
+- **Head-to-head vs Polycam** (`bench/results/head_to_head.md`): ours beats Polycam on ceiling height in both
+  rooms; gate missed overall (beat or tie on 6/14 dimensions, 43 %, gate 70 %), driven by wall placement.
+- **Benchmark gaps** (next step: a physical capture visit): no staged-damage room; no ground truth for the
+  multi-room capture; no opening ground truth (the opening gate is unmeasured).

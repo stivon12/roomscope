@@ -5,7 +5,7 @@ Status: ✅ done and verified · 🟡 partial · ⬜ not started · ❌ known fa
 | # | Requirement | File path | Artifact | Status |
 |---|---|---|---|---|
 | 1.1 | Capture route: stock protocol (Route 2) | `CAPTURE_PROTOCOL.md` | one-page protocol | ✅ Camera app (photo, video) + Stray Scanner (LiDAR); hand-off steps included |
-| 1.2 | Photo tier: 2–8 stills per room, per-room folders, stitched plan | `src/roomscope/frontends/photo.py`, `src/roomscope/core/stitch.py` | `out/<cap>/result.json` | 🟡 runs on every benchmark capture (diagonal-outline crash fixed, 7ebd9cf); multi-room stitch does not connect rooms (G.5) |
+| 1.2 | Photo tier: 2–8 stills per room, per-room folders, stitched plan | `src/roomscope/frontends/photo.py`, `src/roomscope/core/stitch.py` | `out/<cap>/result.json` | 🟡 runs on every benchmark capture (diagonal-outline fix, 7ebd9cf); multi-room stitch connects 1 of 6 rooms (G.5) |
 | 1.3 | Video tier: handheld walkthrough | `src/roomscope/frontends/video.py`, `recon.py` | `out/<cap>/result.json` | 🟡 runs on single rooms; multi-room walk keeps one COLMAP piece ❌ |
 | 1.4 | LiDAR tier | `src/roomscope/frontends/lidar.py` | `out/<cap>/result.json` | ✅ Stray (own iPhone Pro, MuSHRoom iPhone) and ARKitScenes |
 | 1.5 | Device matrix | `docs/DEVICE_MATRIX.md` | table | ✅ |
@@ -14,7 +14,7 @@ Status: ✅ done and verified · 🟡 partial · ⬜ not started · ❌ known fa
 | 2.3 | Per-surface damage regions, class and metric extent | `src/roomscope/damage/` | `damage_regions[]` | 🟡 LiDAR tier; real-photo check (`bench/damage_photos.py`); extent unmeasured (no damaged room) |
 | 2.4 | Concealed-damage flags with the rule that fired | `rules/concealed.yaml`, `src/roomscope/scope/` | `concealed_flags[]` | ✅ public citations (EPA, BRE, 40 CFR 745); `tests/test_scope_rules.py` |
 | 2.5 | Scope line items keyed to surfaces | `rules/scope.yaml`, `src/roomscope/scope/` | `scope_items[]` | ✅ category hints from the public Xactimate list, no prices |
-| 2.6 | Confidence interval on every measurement | `src/roomscope/core/calibrate.py`, `config/calibration.json` | schema `$defs/measurement` | 🟡 every tier calibrated. Benchmark coverage: LiDAR 13/15, video 4/4 (±25 %), photo 3/3 (±103 %). LiDAR still fitted against the old wall reference |
+| 2.6 | Confidence interval on every measurement | `src/roomscope/core/calibrate.py`, `config/calibration.json` | schema `$defs/measurement` | 🟡 every tier calibrated; benchmark coverage LiDAR 14/16, video 4/4 (±25 %), photo 4/4 (±103 %). Next: refit LiDAR against the new wall reference |
 | 2.7 | One command per capture | `src/roomscope/cli.py` | `roomscope run <capture>` | ✅ |
 | 2.8 | JSON to the published schema | `schema/plan.schema.json` | `roomscope validate` | ✅ |
 | 2.9 | Rendered plan | `src/roomscope/render.py` | `plan.png` | ✅ |
@@ -24,18 +24,18 @@ Status: ✅ done and verified · 🟡 partial · ⬜ not started · ❌ known fa
 | B.4 | One room captured twice | `bench/set.yaml` | 421337 ×2, honka ×2 | ✅ |
 | B.5 | Laser or tape ground truth on everything | `benchmark/SET.md` | Faro laser (4 captures) | 🟡 none for YC, openings or damage |
 | G.1 | Openings ≤ 2 cm on ≥ 85 % | `bench/gates.py` | `bench/results/gates.md` | ⬜ not measurable: no opening ground truth |
-| G.2 | Ceiling ≤ 1.5 cm; repeat spread ≤ 1 cm | `bench/gates.py` | `bench/results/gates.md` | ✅ 4/4 rooms; spread 0.62 / 0.41 cm (repeatable and unbiased at this n) |
+| G.2 | Ceiling ≤ 1.5 cm; repeat spread ≤ 1 cm | `bench/gates.py` | `bench/results/gates.md` | ✅ 4/4 rooms; repeat spread 0.62 / 0.41 cm |
 | G.3 | Repeatability: 1 cm or 0.5 % per wall | `bench/gates.py`, `bench/repeatability.py` | `bench/results/gates.md` | ❌ LiDAR 4/12, video 0/4, photo 0/2 |
-| G.4 | Drift handling + on/off ablation of the stitched footprint | `src/roomscope/core/drift.py`, `out/bench/drift_off` | `TECHNICAL_REPORT.md` §3 | 🟡 plane-anchored pose graph; do-no-harm on laser poses; YC footprint ablation in the report |
-| G.5 | Photo whole-property stitch, ±8 % footprint, calibrated | `bench/gates.py` | `bench/results/gates.md` | ❌ 6 of 6 rooms reconstructed but only 1 connected: no doors detected at the photo tier; footprint not measurable (no ground truth) |
-| G.6 | Photo ±8 % / video ±3 % walls; calibration at every tier | `bench/gates.py`, `bench/calibrate.py` | `bench/results/gates.md` | ❌ accuracy not met (scale off 3–12 %); calibration met at every tier after Fix 3 (wide) |
-| 3.1 | Head-to-head vs a consumer app on 2 rooms | `bench/head_to_head.py` | `bench/results/head_to_head.md` | ❌ measured, gate missed: beat or tie on 6/14 dimensions (43 %, gate 70 %). Polycam's own mesh exports shipped with MuSHRoom (honka, coffee_room; version not recorded); honka 5/7, coffee_room 1/7 (our wall placement) |
+| G.4 | Drift handling + on/off ablation of the stitched footprint | `src/roomscope/core/drift.py`, `out/bench/drift_off` | `TECHNICAL_REPORT.md` §3 | 🟡 plane-anchored pose graph; do-no-harm on laser poses; on/off ablation recovers a room on YC (no ground truth) |
+| G.5 | Photo whole-property stitch, ±8 % footprint, calibrated | `bench/gates.py` | `bench/results/gates.md` | ❌ 6 of 6 rooms reconstructed, 1 connected (no doors detected at the photo tier); footprint not measurable (no ground truth) |
+| G.6 | Photo ±8 % / video ±3 % walls; calibration at every tier | `bench/gates.py`, `bench/calibrate.py` | `bench/results/gates.md` | ❌ accuracy not met (scale off 3–12 %); calibration met at every tier after Fix 3 (wide intervals) |
+| 3.1 | Head-to-head vs a consumer app on 2 rooms | `bench/head_to_head.py` | `bench/results/head_to_head.md` | ❌ gate missed: beat or tie on 6/14 dimensions (43 %, gate 70 %); beats Polycam on ceiling height in both rooms; honka 5/7, coffee_room 1/7 (our wall placement). Reference: Polycam's own mesh exports shipped with MuSHRoom (version not recorded) |
 | 4.1 | Fix declaration (worst gate, root cause, prediction) | `fix/DECLARATION.md` | doc, tags `fix2-before`, `fix3-before` | ✅ fixes 1–3 |
-| 4.2 | Fix shipped; regenerable before/after + diff | `fix/`, `bench/gates.py`, `bench/calibrate.py` | tags `fix3-before` / `fix3-after` | ✅ Fix 3: coverage 0/7 → 7/7 (tags `fix3-before` / `fix3-after`); widths missed the prediction, explained |
+| 4.2 | Fix shipped; regenerable before/after + diff | `fix/`, `bench/gates.py`, `bench/calibrate.py` | tags `fix3-before` / `fix3-after` | ✅ Fix 3: coverage 0/7 → 7/7, prediction (≥ 6/7) met; widths wider than predicted, explained |
 | 5.1 | Incremental commit history | git log | — | ✅ |
 | D.3 | README: fresh capture → result in under 15 min | `README.md` | — | 🟡 measured 4 min 20 s before the damage models (+5 GB, not re-timed) |
 | D.4 | Reproduction bundle | `bench/gates.py`, caches under `out/cache` | — | 🟡 regeneration commands at the top of `TECHNICAL_REPORT.md`; raw data packaging not done |
 | D.7 | Technical report ≤ 6 pages | `TECHNICAL_REPORT.md`, `scripts/render_report.py` | `TECHNICAL_REPORT.pdf` (4 pages) | ✅ |
-| D.8 | Raw benchmark data | `benchmark/raw/MANIFEST.md` | — | 🟡 listed and sourced; own captures pending |
-| C.1 | Mirrors, glass, wet-look, low light covered | `TECHNICAL_REPORT.md` §7, `frontends/lidar.py` | — | 🟡 covered in writing; glass and low-light geometry not mitigated |
+| D.8 | Raw benchmark data | `benchmark/raw/MANIFEST.md` | — | 🟡 listed and sourced; own captures next |
+| C.1 | Mirrors, glass, wet-look, low light covered | `TECHNICAL_REPORT.md` §7, `frontends/lidar.py` | — | 🟡 covered; glass and low-light geometry not mitigated |
 | C.2 | Weights fetched by script; models disclosed | `scripts/fetch_weights.sh`, `meta.models` | — | ✅ all ungated, Apache/MIT |

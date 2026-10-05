@@ -1,8 +1,8 @@
 # Device matrix
 
-Which tier runs on which hardware, and what accuracy it honestly delivers. Accuracy comes from our own benchmark
-(`bench/results/gates.md`, Faro laser ground truth, `benchmark/SET.md`) plus the wider laser-scored set used
-for calibration. "Not measured" means we have no data for that cell.
+Which tier runs on which hardware, and the accuracy it delivers against Faro laser ground truth: the benchmark
+set (`bench/results/gates.md`, `benchmark/SET.md`) plus the wider laser-scored set used for calibration.
+"Not measured" means no data for that cell.
 
 ## Tier × hardware
 
@@ -13,20 +13,19 @@ for calibration. "Not measured" means we have no data for that cell.
 | LiDAR | iPhone 15 Pro, 16 Pro, 17 Pro (any LiDAR iPhone or iPad) | Stray Scanner (free) | yes | iPad Pro 2020 (ARKitScenes), iPhone 12 Pro Max (MuSHRoom, depth via Polycam), iPhone Pro (own Stray recordings) |
 | Processing | Mac with Apple Silicon (16 GB tested) or Linux with Python 3.11+ | `roomscope run <capture>` | yes | M1, 16 GB |
 
-No iPhone 15 or newer is in the benchmark. The phones tested are older, so the phone the examiners bring is
-untested. The LiDAR tier carries a 1 % depth-scale prior for an unknown device until
-`roomscope calibrate-depth` measures it.
+Known limit: no iPhone 15 or newer is in the benchmark. An unknown device runs with a 1 % depth-scale prior
+until `roomscope calibrate-depth` measures it from one tape distance.
 
-## Honest accuracy per tier (Faro laser, 2026-10-05)
+## Accuracy per tier (Faro laser, 2026-10-05)
 
 | Quantity | LiDAR | Video | Photo |
 |---|---|---|---|
-| Ceiling height | 4/4 rooms within 1.5 cm (median 0.8 cm, max 1.4 cm). Spread across repeat captures 0.4–0.6 cm | 8–28 cm off (3–12 %) on 4 captures | 7–28 cm off on 3 captures |
+| Ceiling height | 4/4 rooms within 1.5 cm (median 0.9 cm, max 1.4 cm). Spread across repeat captures 0.4–0.6 cm | 8–28 cm off (3–12 %) on 4 captures | 7–28 cm off on 3 captures |
 | Wall length, clean laser reference | median 8.7 cm on 21 walls, 9 over 10 cm (ARKitScenes). Errors come from wall placement, not depth (`docs/WALL_ERRORS.md`) | too few cleanly referenced walls to state; wall planes 10–100 cm off | too few cleanly referenced walls to state |
 | Brief tolerance | (ceiling 1.5 cm) | walls ±3 %: **not met** | walls ±8 %: **not met** |
 | Repeatability (two captures, same room) | 4/12 walls within max(1 cm, 0.5 %) | 0/4 | 0/2 |
-| Intervals cover the truth (nominal 90 %) | 13/15 | 4/4, at ±25 % (Fix 3) | 3/3, at ±103 %: ceiling height is barely measurable from eye-level photos |
-| Multi-room | splits rooms; the YC apartment gives 6 rooms | **one room only**: COLMAP breaks a multi-room walk into pieces and keeps the largest | all 6 YC rooms reconstructed, but only 1 connected: the photo tier detects no doors, so 5 rooms are placed aside (stitch gate not met) |
+| Intervals cover the truth (nominal 90 %) | 14/16 | 4/4, at ±25 % (Fix 3) | 4/4, at ±103 % (eye-level photos rarely see the ceiling) |
+| Multi-room | splits rooms; the YC apartment gives 6 rooms | **one room only**: COLMAP breaks a multi-room walk into pieces and keeps the largest | all 6 YC rooms reconstructed, 1 connected: no doors detected at this tier, so 5 rooms are placed aside (stitch gate not met) |
 | Openings | detected, not measured (no opening ground truth) | as LiDAR | as LiDAR |
 | Damage | runs: multi-view vote on the LiDAR surfaces | not run (no per-frame depth) | not run |
 
