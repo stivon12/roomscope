@@ -34,6 +34,7 @@ import numpy as np
 CONFIG = Path(__file__).resolve().parents[3] / "config" / "calibration.json"
 Z_RAW = 1.645          # raw intervals are value +- Z_RAW * sigma_raw (layout.meas_len)
 A_FLOOR, B_FLOOR = 0.01, 0.005
+MIN_WALL_RECORDS = 5   # below this a tier's wall-length quantile is not used (see apply)
 
 
 def normaliser(value: float, raw_half: float) -> float:
@@ -158,9 +159,13 @@ def fit(records: list[dict], level: float = 0.9) -> dict:
                     q, lvl_used = pooled_q(np.r_[s, sW], np.r_[rooms, rW], nominal), nominal
                     method, lo = "room-pooled, shared with wall_length (too few rooms alone)", lp
             raw_cov = np.mean([abs(r["value"] - r["truth"]) <= r["raw_half"] for r in R])
+            # relative quantile |err| / value at the same level: used to transfer a scale-dominated tier's ceiling
+            # calibration to its walls (apply). Room-pooled like q.
+            rel = np.array([abs(r["value"] - r["truth"]) / max(abs(r["value"]), 1e-6) for r in R])
+            q_rel = pooled_q(rel, rooms, lvl_used)
             err = np.array([abs(r["value"] - r["truth"]) for r in R])
             out[tier][kind] = {
-                "q": q, "level": round(min(lvl_used, level), 4), "nominal_level": round(lvl_used, 4), "method": method,
+                "q": q, "q_rel": q_rel, "level": round(min(lvl_used, level), 4), "nominal_level": round(lvl_used, 4), "method": method,
                 "n": len(R), "n_rooms": int(len(np.unique(rooms))),
                 **lo,
                 "raw_coverage": float(raw_cov),
@@ -192,7 +197,7 @@ def _recal(m: dict, q: float, tag: str, level: float, ref_scale: float | None = 
         return m        # a prior range (nothing was measured): conformal factors fitted on measurements do not apply
     v, raw_half = m["value"], m["hi"] - m["value"]
     half = raw_half * ref_scale if ref_scale is not None else q * normaliser(v, raw_half)
-    m.update(lo=round(v - half, 4), hi=round(v + half, 4), level=level, method=tag)
+    m.update(lo=round(max(v - half, 0.0) if v >= 0 else v - half, 4), hi=round(v + half, 4), level=level, method=tag)
     return m
 
 
@@ -247,6 +252,14 @@ def apply(result: dict, tier: str, cfg: dict | None = None) -> dict:
         result.setdefault("warnings", []).append(f"no calibration for tier '{tier}': intervals are raw fit statistics")
         return result
     L, H = c.get("wall_length"), c.get("ceiling_height")
+    transfer = None
+    if (not L or L.get("n", 0) < MIN_WALL_RECORDS) and H and math.isfinite(H.get("q_rel", float("inf"))):
+        # too few laser-referenced walls to fit (video/photo: the structural reference rarely finds a clean wall
+        # under a scale-wrong reconstruction). Ceilings and walls share the dominant error, the reconstruction's
+        # metric scale, which is RELATIVE: walls get the ceilings' relative quantile (|err| / value), labelled.
+        # (Not the normalised q: its normaliser is the measurement's own fit noise, ~0.5 cm for a ceiling but
+        # ~5 cm for a wall, so a transferred q blew a 2.9 m wall up to -1.5..7.3 m.)
+        L, transfer = H, f"conformal-transfer:{tier}:ceiling_height->wall_length relative (fewer than {MIN_WALL_RECORDS} wall records)"
     for room in result["rooms"]:
         if H and math.isfinite(H["q"]):
             _recal(room["ceiling_height"], H["q"], f"conformal:{tier}:ceiling_height:v1", H["level"])
@@ -257,8 +270,13 @@ def apply(result: dict, tier: str, cfg: dict | None = None) -> dict:
             for k, w in enumerate(room["walls"]):
                 raw = w["length"]["hi"] - w["length"]["value"]
                 b = corner_bin(room["walls"], k)
-                Lb = c.get(f"wall_length:{b}")
-                if Lb and math.isfinite(Lb["q"]):
+                Lb = None if transfer else c.get(f"wall_length:{b}")
+                if transfer:
+                    v = w["length"]["value"]
+                    half = L["q_rel"] * abs(v)
+                    w["length"].update(lo=round(max(v - half, 0.0), 4), hi=round(v + half, 4), level=L["level"],
+                                       method=transfer)
+                elif Lb and math.isfinite(Lb["q"]):
                     tag = f"conformal-mondrian:{tier}:wall_length:{b}:v2"
                     if b == "inferred":
                         tag += " (a neighbouring wall is <30% observed: position inferred)"

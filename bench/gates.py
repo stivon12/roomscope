@@ -2,6 +2,7 @@
 
     python bench/gates.py run   [--tiers lidar,video,photo] [--only id,...]   # pipeline runs, cached in out/bench
     python bench/gates.py score                                              # score cached runs -> gates
+    python bench/gates.py recalibrate --tiers video,photo [--src out/bench/before]  # current calibration on old runs
 
 Runs are the shipped pipeline (calibrated), without damage detection (not a round-1 gate; its own check is
 bench/damage_photos.py). One tier/capture at a time (memory). Scoring:
@@ -74,6 +75,27 @@ def run(tiers: list[str], only: list[str] | None):
                 (OUT / tier / e["id"]).mkdir(parents=True, exist_ok=True)
                 (OUT / tier / e["id"] / "FAILED.txt").write_text(f"{type(ex).__name__}: {ex}")
                 print(f"  FAILED: {type(ex).__name__}: {ex}", flush=True)
+
+
+def recalibrate(src: Path, tiers: list[str]):
+    """Re-apply the CURRENT calibration (config/calibration.json) to finished runs, without re-running the
+    pipeline: copies <src>/<tier>/... to out/bench/<tier>/... and recalibrates each result.json. Valid only when
+    the change being measured is calibration alone (geometry code unchanged), as in fix 3; the result's meta
+    says it was recalibrated. A full rerun (`run`) remains the reproduction path; it is ~4 h on efficiency cores."""
+    import shutil
+    from roomscope.core import calibrate as Cal
+    for tier in tiers:
+        if (OUT / tier).exists():
+            raise SystemExit(f"{OUT / tier} exists: move it away first")
+        shutil.copytree(src / tier, OUT / tier)
+        for rp in sorted((OUT / tier).glob("*/*/result.json")):
+            res = json.loads(rp.read_text())
+            res["warnings"] = [w for w in res["warnings"] if not w.startswith("no calibration for tier")]
+            res = Cal.apply(res, tier)
+            res["warnings"] = sorted(set(res["warnings"]))
+            res["meta"]["recalibrated"] = f"calibration re-applied to the run in {src / tier} (bench/gates.py recalibrate)"
+            rp.write_text(json.dumps(res, indent=2))
+            print(f"[gates] recalibrated {rp.relative_to(ROOT)}")
 
 
 def score_one(e: dict, d: Path) -> dict | None:
@@ -216,11 +238,14 @@ def score():
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("stage", choices=["run", "score"])
+    ap.add_argument("stage", choices=["run", "score", "recalibrate"])
+    ap.add_argument("--src", type=Path, default=OUT / "before", help="recalibrate: finished runs to copy")
     ap.add_argument("--tiers", default="lidar,video,photo")
     ap.add_argument("--only", default=None)
     a = ap.parse_args()
     if a.stage == "run":
         run(a.tiers.split(","), a.only.split(",") if a.only else None)
+    elif a.stage == "recalibrate":
+        recalibrate(a.src, a.tiers.split(","))
     else:
         score()

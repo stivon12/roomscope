@@ -105,5 +105,91 @@
       "abs_err_median": 0.113544864759211,
       "width_to_error": 1.4572060247702137
     }
+  },
+  "video": {
+    "ceiling_height": {
+      "q": 37.05651215790612,
+      "q_rel": 0.2545132772575559,
+      "level": 0.9,
+      "nominal_level": 0.9,
+      "method": "room-pooled, no PAC margin (n too small)",
+      "n": 10,
+      "n_rooms": 8,
+      "loro_coverage": 1.0,
+      "loro_coverage_ci95": [
+        0.5407418735600996,
+        1.0
+      ],
+      "loro_median_halfwidth": 0.5935457821721214,
+      "loro_interval_score": 1.193587519616709,
+      "loro_infinite_folds": 2,
+      "loro_per_room": {
+        "422813": 1.0,
+        "422829": 1.0,
+        "422851": 1.0,
+        "423448": 1.0,
+        "434641": 1.0,
+        "434650": 1.0
+      },
+      "raw_coverage": 0.0,
+      "abs_err_median": 0.1995340890031192,
+      "width_to_error": 2.9746585414928415
+    },
+    "wall_length": {
+      "q": 25.92150744997813,
+      "q_rel": 2.77172693622092,
+      "level": 0.666,
+      "nominal_level": 0.666,
+      "method": "room-pooled, level reduced to 0.667 (n=2)",
+      "n": 2,
+      "n_rooms": 2,
+      "loro_coverage": null,
+      "loro_coverage_ci95": null,
+      "loro_median_halfwidth": null,
+      "loro_interval_score": null,
+      "loro_infinite_folds": 2,
+      "loro_per_room": {},
+      "raw_coverage": 0.0,
+      "abs_err_median": 1.1428964625757128,
+      "width_to_error": null
+    },
+    "wall_length:inferred": {
+      "q": 25.92150744997813,
+      "q_rel": 2.77172693622092,
+      "level": 0.666,
+      "nominal_level": 0.666,
+      "method": "room-pooled, level reduced to 0.667 (n=2)",
+      "n": 2,
+      "n_rooms": 2,
+      "loro_coverage": null,
+      "loro_coverage_ci95": null,
+      "loro_median_halfwidth": null,
+      "loro_interval_score": null,
+      "loro_infinite_folds": 2,
+      "loro_per_room": {},
+      "raw_coverage": 0.0,
+      "abs_err_median": 1.1428964625757128,
+      "width_to_error": null
+    }
+  },
+  "photo": {
+    "ceiling_height": {
+      "q": 82.1209582925,
+      "q_rel": 1.028883902005657,
+      "level": 0.888,
+      "nominal_level": 0.888,
+      "method": "room-pooled, level reduced to 0.889 (n=8)",
+      "n": 8,
+      "n_rooms": 7,
+      "loro_coverage": null,
+      "loro_coverage_ci95": null,
+      "loro_median_halfwidth": null,
+      "loro_interval_score": null,
+      "loro_infinite_folds": 7,
+      "loro_per_room": {},
+      "raw_coverage": 0.125,
+      "abs_err_median": 0.5166142514435099,
+      "width_to_error": null
+    }
   }
 }
