@@ -68,7 +68,7 @@ def analyse(cap, corrs, warnings: list[str], single_room: bool = False):
         poly = Polygon(corners)
         ch = L.ceiling_height(cloud, floor, poly)
         rooms.append({"corners": corners, "edges": edges, "poly": poly, "ceil": ch})
-    _fill_unobserved_ceilings(rooms, walls, ccfg, warnings)
+    _fill_unobserved_ceilings(rooms, walls, ccfg, warnings, cloud.cams - [0, 0, floor.c])
 
     faces = []
     for ri, r in enumerate(rooms):
@@ -86,12 +86,12 @@ def analyse(cap, corrs, warnings: list[str], single_room: bool = False):
     return rooms, faces, grids, openings, cloud
 
 
-def _fill_unobserved_ceilings(rooms, walls, ccfg: dict, warnings: list[str]):
+def _fill_unobserved_ceilings(rooms, walls, ccfg: dict, warnings: list[str], cams: np.ndarray):
     """Rooms whose ceiling was never scanned get a range, flagged observed: false, never a measurement:
     - other rooms of the capture measured theirs: their median, widened by their spread and the
       room-to-room prior (config/layout.yaml ceiling.room_sigma_m);
-    - nobody saw a ceiling: from the highest wall point near the room (the ceiling is at least that
-      high) to the residential maximum, centred on the typical height clamped into that range."""
+    - nobody saw a ceiling: from the highest wall point near the room or the highest camera position
+      inside it (the ceiling is above both; cams are heights above the floor) to the residential maximum, centred on the typical height clamped into that range."""
     seen = [r["ceil"][0] for r in rooms if r["ceil"] is not None]
     for ri, r in enumerate(rooms):
         if r["ceil"] is not None:
@@ -107,11 +107,13 @@ def _fill_unobserved_ceilings(rooms, walls, ccfg: dict, warnings: list[str]):
             near = r["poly"].buffer(0.3)
             tops = [w.top for w in walls if w.kind == "wall" and any(
                 near.intersects(_wall_line(w, lo, hi)) for lo, hi in w.segments)]
-            lo = max(tops) if tops else 0.0
+            inside = [z for x, y, z in cams if r["poly"].contains(Point(x, y))]
+            lo = max(tops + inside) if tops or inside else 0.0
+            src = "highest wall point" if tops and max(tops) >= max(inside, default=0.0) else "highest camera position"
             hi = max(ccfg["max_m"], lo)
             v = float(np.clip(ccfg["typical_m"], lo, hi))
             m = Measurement(v, lo, hi, method="not-observed:residential-prior", observed=False)
-            warnings.append(f"R{ri + 1} ceiling not observed: at least {lo:.2f} m (highest wall point), reported range "
+            warnings.append(f"R{ri + 1} ceiling not observed: at least {lo:.2f} m ({src}), reported range "
                             f"{lo:.2f}-{hi:.2f} m, not a measurement")
         r["ceil"] = (m.value, (m.hi - m.lo) / (2 * L.Z95), 0)
         r["ceil_meas"] = m
