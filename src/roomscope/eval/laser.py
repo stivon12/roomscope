@@ -3,9 +3,10 @@
 Why this is a fair reference:
 - The laser cloud is millimetre-grade and comes from a different sensor, so it shares no noise with the
   iPhone LiDAR.
-- Reference planes are extracted with a *different* algorithm from the pipeline's: Open3D RANSAC
-  segment_plane on laser points, versus the pipeline's histogram peaks on phone points. A bug in one is
-  unlikely to be mirrored in the other.
+- The reference wall for each of our edges is decided from the laser's own structure (_structural_wall:
+  the surface that reaches the ceiling, searched +-1 m across our edge), not as the laser surface nearest
+  our edge. The earlier nearest-within-20-cm rule scored our edge against whatever it sat on (a counter
+  front, a wardrobe) and hid wrong-surface errors (docs/WALL_ERRORS.md).
 
 The laser lives in its own frame, so it is registered rigidly into the result frame:
 both clouds z-up -> Manhattan-align -> 4 yaw hypotheses x 2-D phase correlation of wall occupancy ->
@@ -20,6 +21,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import open3d as o3d
+from scipy.ndimage import gaussian_filter1d
 
 from ..core.layout import manhattan_yaw, rz
 
@@ -336,24 +338,82 @@ def extract_planes(pc: o3d.geometry.PointCloud, max_planes: int = 80, dist: floa
     return planes
 
 
-def _ref_wall_offset(L: np.ndarray, LN: np.ndarray, axis: int, inward: np.ndarray, c: float, lo: float,
-                     hi: float, floor_z: float, win: float = 0.20) -> tuple[float, int] | None:
-    """Laser reference position of one axis-aligned wall: laser points facing the same way (within 15
-    deg), within +-win of the reported line, over the wall's middle stretch and 0.3-2.0 m height; the
-    1 cm histogram peak refined by a trimmed mean. Deterministic (no RANSAC)."""
+def _structural_wall(L: np.ndarray, LN: np.ndarray, axis: int, inward: np.ndarray, c: float, lo: float,
+                     hi: float, floor_z: float, ceil_z: float, depth: float = 1.0, bin_m: float = 0.10,
+                     min_h: float = 0.4, top_m: float = 0.3) -> dict | None:
+    """Laser reference for one axis-aligned edge of our polygon, decided from the laser's own structure.
+
+    Our edge only says which wall is meant (its along-wall span and facing direction); the laser surface is
+    searched over +-`depth` m across it, so where our edge sits does not choose the answer. Every laser surface
+    facing the room (normals within 15 deg) is a candidate; per 10 cm stretch of the wall it is *tall* if it
+    covers >= `min_h` of height there and *reaches the ceiling* if it also comes within `top_m` of the ceiling
+    above it (downward-facing returns over the stretch). Structure is what reaches the ceiling:
+    counters, blinds, sills, sofas and anything seen through a window do not.
+    - A ceiling-reaching surface in front of another is an occluder (wardrobe, curtain) when the one behind
+      continues on both sides of it.
+    - Otherwise each remaining ceiling-reaching surface is a level of the wall, and so is a tall surface behind
+      the chosen level over stretches where the chosen level is not seen (a wall whose top is hidden).
+    Where the laser did not scan the tops of the walls (MuSHRoom vr_room: walls to 2.45 m under a 3.5 m
+    ceiling) nothing qualifies and the edge is "partial": unscored, not guessed (a floor-to-door-height rule
+    was tried and accepts a closed door in its reveal as the wall).
+    status: "wall" = one level (scored); "step" = several levels, a step in the wall or an occluder that
+    cannot be told apart (reported with every level, not scored); "partial" = no structural surface
+    (not scored). None = no laser surface at all."""
+    s = float(np.sign(inward[axis]))
     shrink = min(0.1, 0.25 * (hi - lo))
-    m = (LN @ inward > np.cos(np.deg2rad(15))) & (np.abs(L[:, axis] - c) < win)
-    m &= (L[:, 1 - axis] > lo + shrink) & (L[:, 1 - axis] < hi - shrink)
-    m &= (L[:, 2] > floor_z + 0.3) & (L[:, 2] < floor_z + 2.0)
-    x = L[m, axis]
-    if len(x) < 200:
+    nb = max(1, int(np.ceil((hi - lo - 2 * shrink) / bin_m)))
+    d_all = s * (c - L[:, axis])                               # > 0: behind our edge, outside the room
+    a_all = L[:, 1 - axis]
+    span = (np.abs(d_all) < depth) & (a_all > lo + shrink) & (a_all < hi - shrink)
+    b_all = np.clip(((a_all - lo - shrink) / bin_m).astype(int), 0, nb - 1)
+    top = np.full(nb, ceil_z)                                   # ceiling over each stretch, above cabinet undersides
+    cm = span & (LN[:, 2] < -0.9) & (L[:, 2] > floor_z + 1.8)
+    for b in np.unique(b_all[cm]):
+        zz = L[cm & (b_all == b), 2]
+        if len(zz) >= 10:
+            top[b] = np.percentile(zz, 90)
+    m = span & (LN @ inward > np.cos(np.deg2rad(15))) & (L[:, 2] > floor_z + 0.3) & (L[:, 2] < ceil_z + 0.3)
+    d, z, bi = d_all[m], L[m, 2], b_all[m]
+    if len(d) < 50:
         return None
-    h, e = np.histogram(x, np.arange(c - win, c + win + 0.01, 0.01))
-    off = e[np.argmax(h)] + 0.005
-    for _ in range(3):
-        sel = np.abs(x - off) < 0.02
-        off = float(np.mean(x[sel]))
-    return off, int((np.abs(x - off) < 0.02).sum())
+    zc = np.floor((z - floor_z) / 0.05).astype(int)
+    edges = np.arange(-depth, depth + 0.01, 0.01)
+    h = gaussian_filter1d(np.histogram(d, edges)[0].astype(float), 1.0)
+    peaks = sorted((i for i in range(len(h)) if h[i] >= 50 and h[i] == h[max(0, i - 3):i + 4].max()),
+                   key=lambda i: -h[i])
+    cands = []
+    for i in peaks:
+        cen = edges[i] + 0.005
+        for _ in range(3):
+            cen = float(np.mean(d[np.abs(d - cen) < 0.015]))
+        if any(abs(cen - k["behind"]) < 0.03 for k in cands):
+            continue
+        on = np.abs(d - cen) < 0.015
+        cells, ztop = np.zeros(nb), np.full(nb, -np.inf)
+        for b in np.unique(bi[on]):
+            sel = on & (bi == b)
+            cells[b] = len(np.unique(zc[sel]))
+            ztop[b] = np.percentile(z[sel], 99)
+        tall = cells * 0.05 >= min_h
+        cands.append({"behind": cen, "tall": tall, "ceil": tall & (ztop > top - top_m), "n": int(on.sum())})
+    tall_c = [k for k in cands if k["tall"].sum() >= 3]
+    observed = float(np.mean(np.any([k["tall"] for k in cands], 0)))
+    struct = [k for k in tall_c if k["ceil"].sum() >= 2]
+    if not struct:
+        return {"status": "partial", "observed": observed}
+
+    def occluder(f):
+        fb = np.where(f["tall"])[0]
+        return any((np.where(r["tall"])[0] < fb.min()).any() and (np.where(r["tall"])[0] > fb.max()).any()
+                   for r in struct if r["behind"] > f["behind"] + 0.03)
+    levels = [k for k in struct if not occluder(k)]
+    best = max(levels, key=lambda k: k["tall"].sum())
+    levels += [k for k in tall_c if k not in levels and k["behind"] > best["behind"] + 0.03
+               and (k["tall"] & ~best["tall"]).sum() >= max(3, 0.5 * k["tall"].sum())]
+    others = [k for k in levels if k is not best]
+    return {"status": "step" if others else "wall", "offset": c - s * best["behind"],
+            "levels": [c - s * k["behind"] for k in others], "n_ref": best["n"],
+            "support_m": round(float(best["tall"].sum()) * bin_m, 2), "observed": observed}
 
 
 def _level_plane(X: np.ndarray, start_pct: float, win: float = 0.04, keep_m: float = 0.02) -> np.ndarray | None:
@@ -376,13 +436,18 @@ def _level_plane(X: np.ndarray, start_pct: float, win: float = 0.04, keep_m: flo
 
 def score_result(result: dict, laser_reg: o3d.geometry.PointCloud) -> dict:
     """Per-room ceiling height, per-wall position and per-wall length errors against the laser
-    (result frame). Wall lengths use the reference positions of the two walls that bound them."""
+    (result frame). Wall lengths use the reference positions of the two walls that bound them.
+
+    Walls with one structural level are scored (`wall_planes`, `walls`). Walls whose laser reference has a step
+    or a hidden rear level go to `wall_planes_step` / `walls_step` with the error to each level and the smallest
+    one as a lower bound; walls with no structural surface are listed in `unscored`. Nothing is dropped
+    silently: every polygon edge is in exactly one of the three lists."""
     from shapely import contains_xy
     from shapely.geometry import Polygon
 
     L = np.asarray(laser_reg.points)
     LN = np.asarray(laser_reg.normals)
-    out = {"ceil": [], "walls": [], "wall_planes": []}
+    out = {"ceil": [], "walls": [], "wall_planes": [], "wall_planes_step": [], "walls_step": [], "unscored": []}
     for room in result["rooms"]:
         poly = Polygon(room["polygon"])
         inner = poly.buffer(-0.2)
@@ -410,6 +475,9 @@ def score_result(result: dict, laser_reg: o3d.geometry.PointCloud) -> dict:
                                                         round(1000 * float(np.hypot(*cpl[:2])), 1)]})
         if f_lvl is None:
             f_lvl = float(np.percentile(L[LN[:, 2] > 0.95, 2], 5))
+        cen = np.array([poly.centroid.x, poly.centroid.y, 1.0])
+        floor_z = float(fpl @ cen) if fpl is not None else f_lvl
+        ceil_z = float(cpl @ cen) if cpl is not None else float(np.percentile(L[LN[:, 2] < -0.95, 2], 95))
         n_c = len(room["polygon"])
         ref = []
         for k in range(n_c):
@@ -419,19 +487,36 @@ def score_result(result: dict, laser_reg: o3d.geometry.PointCloud) -> dict:
             inward = np.array([-t[1], t[0], 0.0])                 # CCW polygon: left normal points inside
             c = p[axis]
             lo, hi = sorted((p[1 - axis], q[1 - axis]))
-            r = _ref_wall_offset(L, LN, axis, inward, c, lo, hi, f_lvl)
-            ref.append(None if r is None else r[0])
-            if r is not None:
-                out["wall_planes"].append({"room": room["id"], "wall": f"{room['id']}-W{k + 1}",
-                                           "offset_err": float(c - r[0]), "n_ref": r[1]})
+            wid = f"{room['id']}-W{k + 1}"
+            r = _structural_wall(L, LN, axis, inward, c, lo, hi, floor_z, ceil_z)
+            ref.append(r if r is not None and "offset" in r else None)
+            if r is None or "offset" not in r:
+                out["unscored"].append({"room": room["id"], "wall": wid, "length": round(hi - lo, 2),
+                                        "reason": "no laser surface" if r is None else "no structural surface"})
+                continue
+            row = {"room": room["id"], "wall": wid, "offset_err": float(c - r["offset"]), "n_ref": r["n_ref"],
+                   "support_m": r["support_m"]}
+            if r["status"] == "wall":
+                out["wall_planes"].append(row)
+            else:
+                errs = [c - o for o in [r["offset"], *r["levels"]]]
+                row.update({"level_errs": [round(float(e), 4) for e in errs],
+                            "err_lower_bound": float(min(errs, key=abs))})
+                out["wall_planes_step"].append(row)
         for k, w in enumerate(room["walls"]):
             a, b = ref[k - 1], ref[(k + 1) % n_c]
             if a is None or b is None:
                 continue
-            ref_len = abs(b - a)
+            ref_len = abs(b["offset"] - a["offset"])
             L_ = w["length"]
-            out["walls"].append({"room": room["id"], "wall": w["id"], "ref": ref_len, "err": L_["value"] - ref_len,
-                                 "rel": L_["value"] / ref_len - 1, "covered": L_["lo"] <= ref_len <= L_["hi"]})
+            row = {"room": room["id"], "wall": w["id"], "ref": ref_len, "err": L_["value"] - ref_len,
+                   "rel": L_["value"] / ref_len - 1, "covered": L_["lo"] <= ref_len <= L_["hi"]}
+            if a["status"] == b["status"] == "wall":
+                out["walls"].append(row)
+            else:
+                lens = [abs(y - x) for x in [a["offset"], *a["levels"]] for y in [b["offset"], *b["levels"]]]
+                row["err_lower_bound"] = float(min((L_["value"] - x for x in lens), key=abs))
+                out["walls_step"].append(row)
     return out
 
 
@@ -444,7 +529,10 @@ def summarise(sc: dict) -> str:
         return f"n={len(e)} MAE={np.mean(np.abs(e)) * 100:.2f}cm max={np.max(np.abs(e)) * 100:.2f}cm bias={np.mean(e) * 100:+.2f}cm coverage={cov:.2f}"
     return (f"ceiling  {stat(sc['ceil'])}\n"
             f"walls    {stat(sc['walls'])}\n"
-            f"planes   {stat(sc['wall_planes'], 'offset_err')}")
+            f"planes   {stat(sc['wall_planes'], 'offset_err')}\n"
+            f"step     planes {stat(sc['wall_planes_step'], 'err_lower_bound')} (lower bound); "
+            f"lengths {stat(sc['walls_step'], 'err_lower_bound')}\n"
+            f"unscored {len(sc['unscored'])} edges")
 
 
 def score_capture(out_dir: Path, scene_root: Path, return_ref: bool = False):
@@ -474,7 +562,7 @@ def score_capture(out_dir: Path, scene_root: Path, return_ref: bool = False):
     Lp = np.asarray(ref.points)
     ref = ref.select_by_index(np.where(np.all((Lp > lo) & (Lp < hi), axis=1))[0])
     sc = score_result(result, ref)
-    sc.update({"reference": source, "icp_fitness": fit, "n_ref_planes": len(sc["wall_planes"]),
+    sc.update({"reference": source, "icp_fitness": fit, "n_ref_planes": len(sc["wall_planes"]), "T_laser_to_result": T.tolist(),
                "drift": result["meta"]["drift_correction"]})
     return (sc, ref) if return_ref else sc
 
@@ -486,6 +574,6 @@ if __name__ == "__main__":
     print(f"reference={s['reference']} icp_fitness={s['icp_fitness']:.3f} walls_with_ref={s['n_ref_planes']}")
     print(summarise(s))
     if "-v" in sys.argv:
-        for k in ("ceil", "walls", "wall_planes"):
+        for k in ("ceil", "walls", "wall_planes", "walls_step", "wall_planes_step", "unscored"):
             for r in s[k]:
                 print(k, r)

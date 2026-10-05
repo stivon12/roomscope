@@ -78,3 +78,64 @@ veto on top of the current one.
    if observed.
 4. **Rooms from structure.** The room is the arrangement of structural walls that best explains the
    free-space evidence, rather than a snapped outline of where the floor was visible.
+
+## Step 1 done: structural laser reference (eval/laser._structural_wall)
+How the reference is now found for each of our polygon edges:
+- **Search region.** The laser is searched ±1 m across the edge over its along-wall span. Our edge picks
+  which wall is meant, not where its reference is.
+- **Candidates.** Every room-facing laser surface is a candidate.
+- **Structure.** A surface counts as structure if it reaches the ceiling above it (downward-facing returns
+  above 1.8 m) over at least two 10 cm stretches. Counters, sills, blinds, sofas and anything seen through
+  a window never do.
+- **Occluders.** A structural surface in front of another is an occluder (wardrobe, curtain) when the
+  rear one continues on both sides of it.
+- **Levels.** Each remaining structural surface is a level. So is a tall surface behind the chosen level
+  over stretches where that level is not seen.
+- **Status:**
+  - one level: `wall`, scored;
+  - several levels: `step`, reported with the error to every level and the smallest error as a lower
+    bound, not scored;
+  - no structural surface: `unscored`, listed with the reason.
+
+  Every edge lands in exactly one of these lists. The old scorer dropped edges silently.
+
+Rules tried and rejected while building it (each checked on the edges where it went wrong):
+- **Rearmost surface per stretch:** picks things seen through windows (42897501 W20).
+- **Most-supported full-height surface:** picks a wardrobe over the wall beside it (42444949 W2).
+- **Floor-to-door-height surface where wall tops were not scanned:** accepts a closed door in its reveal
+  as the wall (42444946 W4).
+
+**Check on the reference itself.** The three captures of visit 421337 share one laser frame. Every
+reference line was mapped back into that frame and compared with the other captures:
+- **The wall behind the wardrobe:** old reference 29.1 cm apart between 42444949 and 42444950; new 0.6 cm.
+- **Clean `wall` pairs:** every one now agrees within 2.7 cm. The remaining 25 cm pairs compare different
+  surfaces: the wall beside the wardrobe against the wardrobe front.
+
+**What the old scorer hid** (examples confirmed in laser cross-sections):
+- 42444946 W2: our edge sits on a cabinet front, 37 cm in front of the wall. The old scorer gave no
+  reference.
+- 42898811 W3: 41 cm short of a clean wall. No reference before.
+- 42897501 W5: a phantom notch, 31 cm. It scored −1.0 cm against nothing.
+
+**Wall accuracy on the same results** (pipeline unchanged; 2026-10-05, uncalibrated runs in out/calib/lidar
+and out/mushroom):
+
+| | old scorer | structural reference |
+|---|---|---|
+| ARKitScenes wall position | n=72, median 1.5 cm, max 19.6 cm | wall n=44: median 1.7, mean 10.0, max 60.3 cm, 12 > 10 cm; step n=16 (lower bound median 1.4); unscored 38/98 |
+| ARKitScenes wall length | n=53, median 1.8 cm | wall n=21: median 8.7, mean 15.5, max 59.5 cm, 9 > 10 cm; step n=22 (lower bound median 3.7) |
+| MuSHRoom wall position | n=48, median 1.8 cm, max 19.5 cm | wall n=27: median 2.7, mean 6.1, max 44.0 cm; step n=11; unscored 26/64 |
+| MuSHRoom wall length | n=40, median 2.2 cm, max 21.3 cm | wall n=14: median 6.1, mean 14.0, max 43.1 cm; step n=12 |
+
+The wall-length median of 1.4–1.8 cm reported before came from the scorer, not the pipeline.
+
+**Consequences:**
+- The conformal wall calibration (`config/calibration.json`) was fitted against the old reference and
+  must be refit.
+- `tests/test_lidar_real.py::test_wall_planes_within_noise_floor` is now a strict xfail.
+- The unscored edges are mostly under 0.5 m, too short for three 10 cm stretches after trimming the ends.
+  In MuSHRoom vr_room they are long walls whose tops the laser did not scan.
+- `test_drift_correction_helps` is also a strict xfail. On 42444946 the drift-corrected polygon has 10 edges,
+  one of them (R1-W2) on a cabinet front 37 cm in front of the wall. The uncorrected polygon has 7 edges and
+  no such edge. Mean error on the scored walls: 9.8 cm with drift correction, 2.2 cm without. The drift
+  residual itself still drops. Whether drift correction causes the cabinet edge is open (pipeline, step 2).

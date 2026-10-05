@@ -5,7 +5,7 @@ One command per capture, three capture tiers sharing one output contract (`schem
 
 | Tier | Input | Status (measured against Faro laser scans, ARKitScenes) |
 |---|---|---|
-| **LiDAR** | Stray Scanner export, or an ARKitScenes raw scene | Works. Ceiling within 1 cm on 3/3 held-out captures; walls with both neighbours observed: median length error 1.4 cm; calibrated intervals (leave-one-room-out coverage 0.94). |
+| **LiDAR** | Stray Scanner export, or an ARKitScenes raw scene | Runs end to end. Ceiling within 1 cm on 3/3 held-out captures; walls: against the structural laser reference, median wall-length error 8.7 cm on the 21 cleanly referenced walls, 9 of them off by more than 10 cm (the 1.4 cm quoted earlier came from a scorer that matched our own edges; see docs/WALL_ERRORS.md). Interval calibration must be refit against the new reference. |
 | **Photo** | one folder of 2–8 photos per room | Runs end to end. Wall lengths +4 % / +1 % / −3 % on three rooms; **ceiling height unreliable** (eye-level photos rarely show the ceiling); not yet calibrated. |
 | **Video** | one walkthrough video | Runs end to end (COLMAP poses + Depth Anything 3 depth); **not accurate yet**. On multi-room walks COLMAP splits the walk into several pieces and only the largest is kept, without a warning (open; see `benchmark/raw/MANIFEST.md`). |
 

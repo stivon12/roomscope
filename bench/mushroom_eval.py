@@ -59,7 +59,7 @@ def main():
     print(f"icp_fitness={s['icp_fitness']:.3f} walls_with_ref={s['n_ref_planes']}")
     print(summarise(s))
     if a.v:
-        for k in ("ceil", "walls", "wall_planes"):
+        for k in ("ceil", "walls", "wall_planes", "walls_step", "wall_planes_step", "unscored"):
             for r in s[k]:
                 print(k, {kk: (round(v, 4) if isinstance(v, float) else v) for kk, v in r.items()})
     (a.out_dir / "faro_score.json").write_text(json.dumps(s, indent=1, default=float))
