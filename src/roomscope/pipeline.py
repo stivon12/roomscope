@@ -403,6 +403,14 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, loa
                                 "(pass --device, or measure one distance with `roomscope calibrate-depth`)")
         cap = load_any(capture, **load_kw)
         warnings += getattr(cap, "load_warnings", [])
+        from .core.drift import heading_jumps
+        bad, spans = heading_jumps(cap)
+        if bad.any() and not bad.all():
+            for i in np.where(bad)[0]:            # frames stay (indices are shared with damage/semantics), points go
+                cap.pts_cam[i] = cap.pts_cam[i][:0]
+                cap.nrm_cam[i] = cap.nrm_cam[i][:0]
+            for t0, t1, off in spans:
+                warnings.append(f"frames {t0:.0f}-{t1:.0f} s dropped: tracker heading {off:+.0f} deg off the room's walls")
         body, cloud, drift_meta = _geometry(cap, drift, warnings)
         if cloud.sem is not None:
             from .core.semantics import MODEL_INFO as SEG_INFO

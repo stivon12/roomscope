@@ -70,13 +70,27 @@ def rz(a: float) -> np.ndarray:
     return T
 
 
-def manhattan_yaw(N: np.ndarray, w: np.ndarray | None = None) -> float:
-    """Dominant wall direction modulo 90 deg from horizontal normals: circular mean of 4*theta."""
+YAW_INLIER_DEG = 3.0   # a wall normal within this of the dominant direction counts for it (normal noise ~1 deg)
+
+
+def manhattan_yaw(N: np.ndarray, w: np.ndarray | None = None, return_share: bool = False):
+    """Dominant wall direction modulo 90 deg from horizontal normals: the direction with the most normals
+    within YAW_INLIER_DEG (exhaustive 1-D search, cf. Joo et al. CVPR 2016), refined by the circular mean of 4*theta
+    over those inliers. A plain mean over all normals is pulled by any rotated fragment or diagonal furniture."""
     wall = np.abs(N[:, 2]) < 0.3
     th = np.arctan2(N[wall, 1], N[wall, 0])
-    ww = None if w is None else w[wall]
-    c, s = np.average(np.cos(4 * th), weights=ww), np.average(np.sin(4 * th), weights=ww)
-    return float(np.arctan2(s, c) / 4)
+    ww = np.ones(len(th)) if w is None else w[wall]
+    if not len(th):
+        return (0.0, 0.0) if return_share else 0.0
+    d = np.degrees(th) % 90
+    h = np.bincount(np.floor(d / 0.1).astype(int) % 900, weights=ww, minlength=900)
+    k = int(round(YAW_INLIER_DEG / 0.1))
+    win = np.convolve(np.r_[h[-k:], h, h[:k]], np.ones(2 * k + 1), "valid")
+    best = (np.argmax(win) + 0.5) * 0.1
+    inl = np.abs((d - best + 45) % 90 - 45) <= YAW_INLIER_DEG
+    c, s = np.average(np.cos(4 * th[inl]), weights=ww[inl]), np.average(np.sin(4 * th[inl]), weights=ww[inl])
+    yaw = float(np.arctan2(s, c) / 4)
+    return (yaw, float(ww[inl].sum() / ww.sum())) if return_share else yaw
 
 
 def classify(N: np.ndarray) -> np.ndarray:

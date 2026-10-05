@@ -400,3 +400,31 @@ def correct_drift(cap, frag_seconds: float = 4.0, frame_step: int = 2, per_fragm
 
 def identity(cap) -> np.ndarray:
     return np.repeat(np.eye(4)[None], len(cap.poses), 0)
+
+
+HEADING_MAX_OFF_DEG = 3.0   # ARKit heading drift over a few seconds is far below 1 deg; more is a pose jump
+HEADING_MIN_SHARE = 0.2     # a fragment states a direction only if this share of its wall normals agree on it
+
+
+def heading_jumps(cap, frag_seconds: float = 4.0, min_wall: int = 500) -> tuple[np.ndarray, list[tuple]]:
+    """Frames whose fragment's dominant wall direction disagrees with the capture's by more than
+    HEADING_MAX_OFF_DEG (mod 90): the tracker's heading was wrong there (e.g. still settling after start-up,
+    42444946: the first 12 s are 15-19 deg off), so their points would add a rotated copy of every wall.
+    Fragment test = 1-D Manhattan consensus (cf. PCM, Mangelson et al. 2018). Returns (frame mask, [(t0, t1, off)])."""
+    from .layout import manhattan_yaw
+    F = len(cap.poses)
+    ts = cap.timestamps - cap.timestamps[0]
+    frag = np.floor(ts / frag_seconds).astype(int)
+    g = manhattan_yaw(np.concatenate([cap.world(i)[1] for i in range(0, F, 5)]))
+    bad, spans = np.zeros(F, bool), []
+    for k in np.unique(frag):
+        idx = np.where(frag == k)[0]
+        N = np.concatenate([cap.world(i)[1] for i in idx[::2]])
+        if (np.abs(N[:, 2]) < 0.3).sum() < min_wall:
+            continue
+        y, share = manhattan_yaw(N, return_share=True)
+        off = np.degrees((y - g + np.pi / 4) % (np.pi / 2) - np.pi / 4)
+        if share >= HEADING_MIN_SHARE and abs(off) > HEADING_MAX_OFF_DEG:
+            bad[idx] = True
+            spans.append((float(ts[idx[0]]), float(ts[idx[-1]]), float(off)))
+    return bad, spans
