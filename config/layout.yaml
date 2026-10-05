@@ -5,3 +5,18 @@ ceiling:
   typical_m: 2.50            # common residential finished height (US 8 ft = 2.44 m; EU 2.5-2.6 m)
   max_m: 3.60                # upper end of residential ceilings (12 ft); the reported range never claims less
   room_sigma_m: 0.15         # room-to-room difference inside one dwelling (dropped bathroom/hall ceilings)
+
+rooms:
+  method: scp                # scp (structural-clearance persistence, core/rooms_scp.py) | components (pre-2026-10-05)
+  min_room_area_m2: 1.0      # smallest region kept as a room (a WC is ~1.2 m2)
+  scp:
+    # Frozen 2026-10-05 from bench/room_seg_eval.py --sweep on Bormann et al.'s 20 labelled maps, before use
+    # on our captures. The band was proposed a priori (room radius / half door width: bedroom ~3.7,
+    # bathroom ~2.3, alcove 1.0-1.4) and is near-best there: plain maps recall 98.4 / precision 95.0 %,
+    # furnished 85.6 / 95.0 % (their best published, Voronoi: 86.6 / 94.5 % furnished).
+    ratio_band: [1.5, 2.5]   # tau = widest persistence gap inside this band (r_birth / r_saddle)
+    r_min_m: 0.6             # a room is at least ~1.2 m across
+    r_floor_m: 0.05          # clearances below this are not used for peaks
+    cell_m: 0.04             # partition grid (persistence is scale-free; 4 cm keeps it fast)
+    obstacle_band_m: [1.0, 1.3]   # wall-face points at this height above the floor are structure: furniture is
+                                  # mostly lower, and scans held low still see walls here
