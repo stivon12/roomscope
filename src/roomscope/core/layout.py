@@ -38,6 +38,7 @@ SNAP_DIST = 0.30      # floor-boundary edge -> wall plane snapping radius (m)
 STRUCT_REACH = 0.80   # how far behind a furniture front the structural wall may stand (m): wardrobe/counter depth
 STRUCT_TOP_GAP = 0.60 # a structural wall is observed to within this of the ceiling (m)
 STRUCT_COVER = 0.5    # share of the edge's span the structural wall's own segments must cover
+NOTCH_MERGE = True    # fix 4: merge floor-boundary notches up to STRUCT_REACH deep (False = before fix 4)
 LAYOUT_CONFIG = __import__("pathlib").Path(__file__).resolve().parents[3] / "config" / "layout.yaml"
 SYS_LEN = 0.005        # systematic floor on length uncertainty (LiDAR range bias), placeholder until conformal
 Z95 = 1.645            # 90% two-sided
@@ -904,7 +905,7 @@ def room_polygon(mask: np.ndarray, g: Grid2, walls: list[WallPlane], others: np.
         # a floor-boundary edge (no wall plane behind it) is where the visible floor stopped at furniture; up to
         # furniture depth it is a notch, not a wall, and it would cut the real wall differently in every capture
         bad = [k for k in range(n) if lens[k] < 0.08 or (merged[k].plane is None and lens[k] < 0.3)
-               or (merged[k].plane is None and not merged[k].shared and lens[k] <= STRUCT_REACH)]
+               or (NOTCH_MERGE and merged[k].plane is None and not merged[k].shared and lens[k] <= STRUCT_REACH)]
         if not bad:
             break
         k = min(bad, key=lambda i: lens[i])
