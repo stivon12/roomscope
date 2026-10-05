@@ -2,52 +2,72 @@
  {
   "room": "honka",
   "capture": "honka_long",
-  "icp_fitness_laser": 0.30449568172086067,
-  "icp_fitness_polycam": 0.2690409159159159,
+  "icp_fitness_laser": 0.30237686091971283,
+  "icp_fitness_polycam": 0.3189255257958837,
   "rows": [
    {
     "dimension": "R1-W1 position",
-    "ours_err": 0.006867237004589466,
-    "polycam_err": -0.006796346056693325,
+    "ours_err": 0.003135117089162698,
+    "polycam_err": -0.009312486592065738,
     "beat_or_tie": true
    },
    {
-    "dimension": "R1-W2 position",
-    "ours_err": -0.017034373735560493,
-    "polycam_err": -0.018701315507591687,
+    "dimension": "R1-W3 position",
+    "ours_err": -0.198193159450895,
+    "polycam_err": -0.024456466066968607,
+    "beat_or_tie": false
+   },
+   {
+    "dimension": "R1-W5 position",
+    "ours_err": 0.004708447783395853,
+    "polycam_err": -0.01307396918447723,
     "beat_or_tie": true
    },
    {
-    "dimension": "R1-W6 position",
-    "ours_err": 0.026573420548714255,
-    "polycam_err": -0.024010220109692115,
+    "dimension": "R1-W7 position",
+    "ours_err": -0.00607507999638468,
+    "polycam_err": 0.003382426186211873,
     "beat_or_tie": true
    },
    {
     "dimension": "R1-W8 position",
-    "ours_err": -0.027645417316077392,
-    "polycam_err": -0.0051428465742615614,
-    "beat_or_tie": false
-   },
-   {
-    "dimension": "R1-W1 length",
-    "ours_err": 0.010511043580517132,
-    "polycam_err": -0.013558468933330126,
-    "truth_m": 0.40678895641948287,
+    "ours_err": 0.003751254182174091,
+    "polycam_err": -0.005544294909350711,
     "beat_or_tie": true
    },
    {
-    "dimension": "R1-W7 length",
-    "ours_err": 0.05421883786479231,
-    "polycam_err": -0.018867373535430332,
-    "truth_m": 6.263881162135208,
+    "dimension": "R1-W2 length",
+    "ours_err": -0.20132827654005858,
+    "polycam_err": -0.015143979474903091,
+    "truth_m": 5.586028276540058,
     "beat_or_tie": false
    },
    {
+    "dimension": "R1-W4 length",
+    "ours_err": 0.20290160723429085,
+    "polycam_err": 0.011382496882491377,
+    "truth_m": 0.27499839276570914,
+    "beat_or_tie": false
+   },
+   {
+    "dimension": "R1-W6 length",
+    "ours_err": 0.010783527779780755,
+    "polycam_err": -0.01645639537068888,
+    "truth_m": 6.263916472220219,
+    "beat_or_tie": true
+   },
+   {
+    "dimension": "R1-W8 length",
+    "ours_err": 0.009210197085547711,
+    "polycam_err": -0.012694912778277612,
+    "truth_m": 0.4028898029144523,
+    "beat_or_tie": true
+   },
+   {
     "dimension": "R1 ceiling height",
-    "ours_err": -0.009486840032863153,
-    "polycam_err": -0.030814457942343942,
-    "truth_m": 2.3487868400328633,
+    "ours_err": -0.027468580152516076,
+    "polycam_err": -0.030844112845658245,
+    "truth_m": 2.348768580152516,
     "beat_or_tie": true
    }
   ],
@@ -57,43 +77,30 @@
  {
   "room": "coffee_room",
   "capture": "coffee_room_long",
-  "icp_fitness_laser": 0.2527051393512077,
-  "icp_fitness_polycam": 0.2479786763518589,
+  "icp_fitness_laser": 0.2617574996737474,
+  "icp_fitness_polycam": 0.29895597401868107,
   "rows": [
    {
     "dimension": "R1-W1 position",
-    "ours_err": 0.03646408520599781,
-    "polycam_err": 0.021785118680181403,
-    "beat_or_tie": false
-   },
-   {
-    "dimension": "R1-W2 position",
-    "ours_err": -0.041108069563975835,
-    "polycam_err": -0.03468542123937779,
-    "beat_or_tie": false
+    "ours_err": 0.012078190538908018,
+    "polycam_err": 0.008955803925981498,
+    "beat_or_tie": true
    },
    {
     "dimension": "R1-W5 position",
-    "ours_err": -0.016038174970349317,
-    "polycam_err": -0.003723423838683182,
-    "beat_or_tie": false
+    "ours_err": -0.0017835651278863551,
+    "polycam_err": 0.002436614840251927,
+    "beat_or_tie": true
    },
    {
     "dimension": "R1-W6 length",
-    "ours_err": 0.052502260176347626,
-    "polycam_err": 0.025508542518864807,
-    "truth_m": 3.6914977398236526,
+    "ours_err": 0.013861755666793929,
+    "polycam_err": 0.006519189085729238,
+    "truth_m": 3.702038244333206,
     "beat_or_tie": false
-   },
-   {
-    "dimension": "R1 ceiling height",
-    "ours_err": -0.020109409005694356,
-    "polycam_err": -0.04646203108155067,
-    "truth_m": 3.2218094090056946,
-    "beat_or_tie": true
    }
   ],
-  "unshared_walls_laser": 2,
+  "unshared_walls_laser": 3,
   "unshared_walls_polycam": 2
  }
 ]
