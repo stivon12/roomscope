@@ -98,3 +98,43 @@ small raw uncertainties their normalised scores are larger, so its quantile q ro
 even though its median error is 1.4 cm. The prediction anticipated the tail but underestimated it.
 Next lever, not part of this fix: find what those 6 walls share (the corner research's "wrong layer"
 case: a neighbour fitted to a front surface while the dominant laser surface lies behind it).
+
+## Fix 3: video and photo intervals never contain the truth (calibration gate)
+
+Declared and committed (tag `fix3-before`) before any fix code. Gates from `bench/results/gates.md` at 9daf662.
+
+**Why this gate.** It is the worst one on the benchmark set:
+- **Video and photo coverage:** the calibrated intervals contain the laser value for 0 of 4 video
+  measurements and 0 of 3 photo measurements. The nominal level is 0.9.
+- **LiDAR coverage:** 13/15.
+- **Other gates:** the video and photo accuracy gates (±3 %, ±8 %) and repeatability also fail. But every
+  video and photo number is reported with a near-zero interval, so none of them says it is uncertain. The
+  brief caps the score for confident garbage: a wrong number with a tight interval is worse than a wrong
+  number with an honest one.
+
+**Root cause (evidence).** The video and photo intervals are raw plane-fit statistics: `fitstat:v0`, about
+±0.9 cm on a ceiling and ±8 cm on a wall. `config/calibration.json` has an entry for LiDAR only, so
+`calibrate.apply` leaves these tiers raw and only adds a warning. Their real error is the metric scale of the
+RGB reconstruction, a fully correlated relative error that a plane fit cannot see. On the set:
+- ceilings −7.7, −12.6, −27.4, −28.1 cm (video) and −27.7, −10.0, +7.4 cm (photo), i.e. 3–12 %;
+- wall offsets 10–100 cm.
+
+**Fix.** Fit split-conformal calibration for the video and photo tiers (`bench/calibrate.py --tier video|photo`)
+on laser-scored captures disjoint from the benchmark set:
+- ARKitScenes rooms other than 421337: 42897521, 42897647, 42897501, 42897545, 42898811, 42898818;
+- MuSHRoom vr_room and coffee_room (long and short).
+
+Rooms in the benchmark set (421337 and honka) are excluded from calibration, including 42444950, which is room
+421337. Uses the existing normalised score u = sqrt(σ_raw² + (1 cm)² + (0.5 % · value)²), so q scales the
+relative term that dominates for these tiers. No pipeline or geometry change.
+
+**Predicted after-numbers.**
+- Benchmark set, video and photo coverage together: **≥ 6 of 7** measurements. Today 0 of 7.
+- Leave-one-room-out coverage on the calibration rooms: ≥ 0.80 per tier.
+- Median ceiling half-width: **5–15 % of the value** for video and photo, from ~0.3 % today.
+
+Uncertainty: with ~8 calibration rooms and few clean walls per video/photo run, the quantile is coarse and its
+coverage CI is wide.
+
+This fix makes the intervals honest. It does not make video or photo measurements more accurate: the ±3 % /
+±8 % accuracy gates and repeatability are predicted to stay where they are.
