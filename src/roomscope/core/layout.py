@@ -745,6 +745,9 @@ class Edge:
     shared: bool = False # open boundary with another room (no wall): position from the room partition
 
 
+DIAG_LEG_MIN_M = 0.5    # a diagonal floor-outline segment this long is a visibility limit, not contour noise
+
+
 def room_polygon(mask: np.ndarray, g: Grid2, walls: list[WallPlane], others: np.ndarray | None = None):
     """Contour -> rectilinear edges -> each edge snapped to the wall plane facing into the room.
 
@@ -761,6 +764,20 @@ def room_polygon(mask: np.ndarray, g: Grid2, walls: list[WallPlane], others: np.
     poly = Polygon(pts)
     if not poly.is_valid or poly.area <= 0:
         poly = poly.buffer(0)
+    # A long diagonal of the floor outline is where the cameras stopped seeing floor (photo tier: each photo sees
+    # the floor only inside its view), not a wall. Skipping it, as staircase noise is skipped below, left the
+    # outline open on that side and dropped the room ("no room reconstructed", 42444946 / 42897647 photo).
+    # Replace it with the two axis-aligned legs that enclose it (corner outside the seen floor): each leg then
+    # snaps to a wall plane in reach, or stays an inferred edge with a widened interval.
+    rect = []
+    for k in range(len(pts)):
+        p, q = pts[k], pts[(k + 1) % len(pts)]
+        rect.append(p)
+        d = q - p
+        if np.hypot(*d) >= DIAG_LEG_MIN_M and min(abs(d[0]), abs(d[1])) / np.hypot(*d) > 0.35:
+            c1, c2 = np.array([p[0], q[1]]), np.array([q[0], p[1]])
+            rect.append(c1 if not poly.contains(Point(*c1)) else c2)
+    pts = np.array(rect)
     edges: list[Edge] = []
     n = len(pts)
     for k in range(n):
