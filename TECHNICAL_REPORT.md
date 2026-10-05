@@ -190,6 +190,8 @@ produce rooms; LiDAR walls are unchanged.
   all 29 benchmark runs. Flagged captures still produce output, with warnings.
 - **Untested hardware:** no iPhone 15 or newer is in the benchmark.
 - **Head-to-head vs Polycam** (`bench/results/head_to_head.md`): ours beats Polycam on ceiling height in both
-  rooms; gate missed overall (beat or tie on 6/14 dimensions, 43 %, gate 70 %), driven by wall placement.
+  rooms; gate missed overall (beat or tie on 6/12 dimensions, 50 %, gate 70 %). Snapping furniture-front edges to
+  the structural wall behind them moved the two worst coffee_room walls from −39.5 / −11.4 cm to +1.3 / −1.6 cm;
+  the remaining losses are within 0.7–2.7 cm of Polycam, a fitting-precision gap rather than a placement error.
 - **Benchmark gaps** (next step: a physical capture visit): no staged-damage room; no ground truth for the
   multi-room capture; no opening ground truth (the opening gate is unmeasured).

@@ -76,6 +76,10 @@ veto on top of the current one.
    with no wall evidence is marked inferred (`observed_fraction` 0, wide interval) or estimated from
    structure: the ceiling edge, or the same wall continuing. It is never reported at the floor boundary as
    if observed.
+   *Shipped (`bfa488b`):* an edge without a structural plane in snapping range now takes the innermost
+   same-facing wall plane up to 0.8 m outward that reaches within 0.6 m of the ceiling and covers half the
+   edge; edges left on the floor boundary report `observed_fraction` 0. coffee_room: −39.5 / −11.4 cm →
+   +1.3 / −1.6 cm.
 4. **Rooms from structure.** The room is the arrangement of structural walls that best explains the
    free-space evidence, rather than a snapped outline of where the floor was visible.
 
