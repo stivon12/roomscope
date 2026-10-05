@@ -98,6 +98,7 @@ so footprint accuracy is not scored. Next: tape-measure the apartment (`benchmar
 | Ceiling depth on the MuSHRoom iPhone | −2.4 % at every angle and range (walls within 0.2 %); Polycam shows the same | reported, not corrected: no held-out laser ceiling for this phone |
 | Depth noise on matched surfaces | 0–3 cm | averaged by plane fits |
 | ARKit pose error | ~2 cm median | plane-anchored drift correction (do no harm) |
+| ARKit heading jump | 15–19° for the first 12 s of 42444946 | 4 s fragments more than 3° off the room's wall direction are dropped, with a warning |
 | **Wall placement**: wall taken from a furniture front or the visible-floor edge | **10–60 cm on some walls** | not fixed (`docs/WALL_ERRORS.md`); dominates the wall error |
 | Two-level ceiling seen from one level | up to 77 cm | known failure |
 
@@ -197,8 +198,8 @@ produce rooms; LiDAR walls are unchanged.
   observed ceiling and under 20 % of walls observed. It flags an outdoor walk and a glass-walled office, and passes
   all 29 benchmark runs. Flagged captures still produce output, with warnings.
 - **Untested hardware:** no iPhone 15 or newer is in the benchmark.
-- **Head-to-head vs Polycam** (`bench/results/head_to_head.md`): beat or tie on **7 of 8 dimensions (88 %, gate
-  70 %: met)**, after structural-wall snapping, the measured per-device depth scale and Fix 4. Every shared wall
-  position is within 1.2 cm of the laser; the one loss is a coffee_room length (+1.4 vs +0.8 cm).
+- **Head-to-head vs Polycam** (`bench/results/head_to_head.md`): beat or tie on **9 of 10 dimensions (90 %, gate
+  70 %: met)**, after structural-wall snapping, the measured per-device depth scale, Fix 4 and the heading-jump
+  filter. Every shared wall position is within 1.8 cm of the laser; the one loss is coffee_room W1 (+1.8 vs +1.2 cm).
 - **Benchmark gaps** (next step: a physical capture visit): no staged-damage room; no ground truth for the
   multi-room capture; no opening ground truth (the opening gate is unmeasured).

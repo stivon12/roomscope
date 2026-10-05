@@ -15,7 +15,7 @@ Every accuracy number below is scored against Faro laser scans (ARKitScenes, MuS
 - **Calibration at every tier:** Fix 3 took video/photo interval coverage from 0/7 to 7/7, meeting its declared prediction.
 - **Drift correction** recovers a bathroom that merges into the hallway without it (report §3).
 - **Damage, concealed-damage flags and scope items** from rule tables with public citations (EPA, BRE, 40 CFR 745).
-- **Head-to-head vs Polycam:** beat or tie on 7 of 8 dimensions (88 %, gate 70 %: met); every shared wall position within 1.2 cm of the laser.
+- **Head-to-head vs Polycam:** beat or tie on 9 of 10 dimensions (90 %, gate 70 %: met); every shared wall position within 1.8 cm of the laser.
 - **Fix 4:** LiDAR repeatability 21 % → 40 %, honka pair 4/6 within 1 cm, all declared predictions met.
 
 **[Technical report](TECHNICAL_REPORT.md)** ([PDF](TECHNICAL_REPORT.pdf)): architecture, tiers and device matrix, drift, error budget, calibration, fix loop, failure modes.
