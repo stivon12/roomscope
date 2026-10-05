@@ -273,3 +273,35 @@ git log -1 --format='%h %ad' --date=iso fix2-before; git log -1 --format='%h %ad
 # HEIC EXIF loss and orientation size
 grep -n "convert(\"RGB\").save" src/roomscope/frontends/photo.py; grep -n "Image.open(p).size" src/roomscope/frontends/recon.py
 ```
+
+## 7. MapAnything → Depth Anything 3 (2026-10-05)
+
+Default reconstruction for the video and photo tiers is now Depth Anything 3. It uses DA3-BASE (0.12 B) for multi-view and pose-conditioned depth, and DA3METRIC-LARGE (0.35 B) for metric scale. Both are Apache-2.0 and run on the Mac GPU (MPS) in `.venv-da3`. Setting `ROOMSCOPE_RECON=mapanything` restores the old path.
+
+The figures below come from these commands, run on 2026-10-05:
+- `bench/video_eval.py`, writing `out/video_eval/summary_{mapanything,da3}.json`;
+- `bench/calibrate.py --tier photo --rerun`, writing `out/calib/records_photo{_mapanything,}.json`.
+
+**Video** (COLMAP poses, 32 frames). Scale error is measured against ARKit; ceiling and wall-plane errors against the laser scans.
+
+| Capture | Scale MA → DA3 | Ceiling cm MA → DA3 | Wall-plane median cm MA → DA3 |
+|---|---|---|---|
+| 42444946 | −9.9 → **−2.7 %** | −37.9 → **−6.1** | **3.8** → 11.6 |
+| 42444949 | +22.8 → **−6.8 %** | +27.1 → **−18.2** | 10.3 → **7.8** |
+| 42444950 | +33.4 → **−5.5 %** | −164.6 → **−12.2** | 12.9 → **3.9** |
+| 42897501 | +19.5 → **+2.4 %** | +28.7 → **+7.3** | 9.8 → **1.4** |
+
+- DA3 takes 26 s per capture. The whole 4-capture run took 3 min 30 s with cached COLMAP.
+- MapAnything was not timed on the same frames; that run was stopped at the user's request.
+- Gates still failing: ±3 % scale is met on 2 of 4 captures, and the 1.5 cm ceiling gate on 0 of 4. DA3METRIC alone reads short on every capture (`bench/scale_cues.py`: −10.7, −13.7, −13.4, −2.3 %).
+
+**Photo** (stand-in photos, 9 captures; 3 min 52 s for the whole run with DA3).
+
+| | MapAnything (older run, before the empty-footprint fix) | DA3 |
+|---|---|---|
+| Captures producing a room | 4 of 9 | 7 of 9 |
+| Walls scored / within ±8 % | 6 / 6 (median 3.2 %) | 20 / 14 (median 4.0 %) |
+| Ceiling errors cm | −33.1, +75.8, +0.5, −144.7 | −29.7, −12.0, −31.6, +6.4, −0.7, −122.5, −33.7 |
+
+- The two DA3 photo failures are 42444946 and 42897647. In both, the floor region is not a closed polygon, so it is dropped. On 42897647 the camera heights spread 0.55 m, so DA3-BASE's unposed poses are less consistent there.
+- The photo comparison is not like for like. The MapAnything records predate later fixes, so a fair MapAnything photo re-run is still owed.
