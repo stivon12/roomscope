@@ -38,3 +38,20 @@ iPhone model, so the unknown-device depth prior applies.
 |---|---|---|---|
 | 4e41d0a7da | open-plan office/lab, glass-walled rooms, camera pointed mostly at the floor | 3,481 | 1 "room" of 219 m2: glass returns no depth, so nothing separates the spaces; ceiling never seen (reported as not observed) |
 | old_parliament_house | **outdoors at night**, around a building | 5,730 | 2 "rooms" (74, 356 m2) with no out-of-scope warning: the pipeline has no check that a capture is an indoor room |
+
+## mushroom/ — MuSHRoom iPhone captures with a Faro laser scan (external accuracy check)
+Ren et al., "MuSHRoom: Multi-Sensor Hybrid Room Dataset", arXiv 2311.02778, CC BY 4.0 (cite when used).
+Zenodo records 10230733 (`<room>_iphone.tar.gz`) and 10222321 (`<room>_mesh_pd.tar.gz`, Faro Focus 3D X130:
+`gt_pd.ply`, `gt_mesh.ply`, `icp_iphone.json`), unpacked into `benchmark/raw/mushroom/room_datasets/<room>/`.
+iPhone 12 Pro Max via Polycam: keyframes 738x994 with depth already upsampled and hole-filled by Polycam (no
+raw 256x192 LiDAR, no confidence, no IMU), so this checks geometry and intervals on another phone, not raw
+LiDAR bias. Converted to Stray layout by `bench/mushroom_to_stray.py` into `benchmark/raw/mushroom_stray/`,
+scored by `bench/mushroom_eval.py` (rigid registration to gt_pd.ply; icp_iphone.json not used).
+
+| room | capture | frames | ceiling err | walls covered | wall length MAE | depth scale from laser ceiling |
+|---|---|---|---|---|---|---|
+| vr_room (5.1 x 4.4 m) | long | 422 | -1.28 cm (covered) | 7/7 | 2.08 cm | 0.9858 (-1.42 %) |
+| vr_room | short | 186 | -0.45 cm (covered) | 5/5 | 1.37 cm | 0.9880 (-1.20 %) |
+
+(2026-10-05, unknown-device prior applied; scale from `roomscope calibrate-depth --dry-run` with the laser
+ceiling 3.5157 m. iPad Pro (2020) for comparison: 0.9883.)
