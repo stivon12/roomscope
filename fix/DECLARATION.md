@@ -215,3 +215,26 @@ together. No outline change can reach 0.5 % there.
 - Floor-boundary edges on the four laser captures: from 7 to ≤ 3.
 - Head-to-head vs Polycam: **≥ 70 %** (from 69 %): the honka notch's three losses go away.
 - Do no harm: no laser-scored wall position more than 2 cm worse; ceiling and calibration gates unchanged.
+
+**Outcome (commit tagged `fix4-after`; regenerate: `python bench/gates.py run --tiers lidar && python bench/gates.py score`).**
+
+| | before (`fix4-before`) | predicted | after | |
+|---|---|---|---|---|
+| G.3-lidar, walls within tolerance | 3/14 (21 %) | ≥ 40 % | **4/10 (40 %)** | met |
+| honka pair | 3/6, median 2.1 cm | ≥ 4 | **4/6, median 1.1 cm** | met |
+| floor-boundary edges, 4 laser captures | 7 | ≤ 3 | **3** | met |
+| head-to-head vs Polycam | 9/13 (69 %) | ≥ 70 % | **7/8 (88 %)** | met |
+| laser-scored wall positions > 2 cm worse | – | 0 | **0** | met |
+| ceiling gate / interval coverage | 2/4 / 10/12 | unchanged | 2/4 / 8/9 | unchanged |
+
+- **honka:** both captures now give the same six walls; the long wall reads 5.86 m and 5.83 m, instead of
+  5.39 m and 5.83 m.
+- **Head-to-head denominator:** the comparison now has 8 shared dimensions, down from 13. With the notch gone,
+  three honka walls run along a laser surface that has two levels, so they are reported as steps (lower-bound
+  errors) and are not shared. The one remaining loss is a coffee_room length (+1.4 cm vs Polycam +0.8 cm).
+- **421337 pair: 0/4, the part not fixed.** Its remaining floor-boundary edges (1.6, 0.87 and 1.5 m) are deeper
+  than furniture, so the rule keeps them, as declared. They border floor the camera never saw, so each capture
+  closes the room in a different place.
+
+**Next fix:** close an unobserved side from structure (the ceiling edge, or the wall line continuing) instead of the
+floor boundary. It is the remaining cause on 421337.

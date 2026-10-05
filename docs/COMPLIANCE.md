@@ -14,7 +14,7 @@ Status: ✅ done and verified · 🟡 partial · ⬜ not started · ❌ known fa
 | 2.3 | Per-surface damage regions, class and metric extent | `src/roomscope/damage/` | `damage_regions[]` | 🟡 LiDAR tier; real-photo check (`bench/damage_photos.py`); extent unmeasured (no damaged room) |
 | 2.4 | Concealed-damage flags with the rule that fired | `rules/concealed.yaml`, `src/roomscope/scope/` | `concealed_flags[]` | ✅ public citations (EPA, BRE, 40 CFR 745); `tests/test_scope_rules.py` |
 | 2.5 | Scope line items keyed to surfaces | `rules/scope.yaml`, `src/roomscope/scope/` | `scope_items[]` | ✅ category hints from the public Xactimate list, no prices |
-| 2.6 | Confidence interval on every measurement | `src/roomscope/core/calibrate.py`, `config/calibration.json` | schema `$defs/measurement` | 🟡 every tier calibrated; benchmark coverage LiDAR 10/12 (refit on disjoint rooms, ceiling ±3.5 cm), video 4/4 (±25 %), photo 4/4 (±103 %) |
+| 2.6 | Confidence interval on every measurement | `src/roomscope/core/calibrate.py`, `config/calibration.json` | schema `$defs/measurement` | 🟡 every tier calibrated; benchmark coverage LiDAR 8/9 (refit on disjoint rooms, ceiling ±3.5 cm), video 4/4 (±25 %), photo 4/4 (±103 %) |
 | 2.7 | One command per capture | `src/roomscope/cli.py` | `roomscope run <capture>` | ✅ |
 | 2.8 | JSON to the published schema | `schema/plan.schema.json` | `roomscope validate` | ✅ |
 | 2.9 | Rendered plan | `src/roomscope/render.py` | `plan.png` | ✅ |
@@ -25,13 +25,13 @@ Status: ✅ done and verified · 🟡 partial · ⬜ not started · ❌ known fa
 | B.5 | Laser or tape ground truth on everything | `benchmark/SET.md` | Faro laser (4 captures) | 🟡 none for YC, openings or damage |
 | G.1 | Openings ≤ 2 cm on ≥ 85 % | `bench/gates.py` | `bench/results/gates.md` | ⬜ not measurable: no opening ground truth |
 | G.2 | Ceiling ≤ 1.5 cm; repeat spread ≤ 1 cm | `bench/gates.py` | `bench/results/gates.md` | ❌ 2/4 rooms (iPad 0.3 / 0.8 cm; MuSHRoom iPhone −2.7 / −3.3 cm: its ceilings read 2.4 % short, as Polycam's do); repeat spread 0.60 / 0.53 cm ✅ |
-| G.3 | Repeatability: 1 cm or 0.5 % per wall | `bench/gates.py`, `bench/repeatability.py` | `bench/results/gates.md` | ❌ LiDAR 3/14, video 0/4, photo 0/3 |
+| G.3 | Repeatability: 1 cm or 0.5 % per wall | `bench/gates.py`, `bench/repeatability.py` | `bench/results/gates.md` | ❌ LiDAR 4/10 (40 %, Fix 4: from 21 %; honka 4/6), video 0/4, photo 0/3 |
 | G.4 | Drift handling + on/off ablation of the stitched footprint | `src/roomscope/core/drift.py`, `out/bench/drift_off` | `TECHNICAL_REPORT.md` §3 | 🟡 plane-anchored pose graph; do-no-harm on laser poses; on/off ablation recovers a room on YC (no ground truth) |
 | G.5 | Photo whole-property stitch, ±8 % footprint, calibrated | `bench/gates.py` | `bench/results/gates.md` | ❌ 6 of 6 rooms reconstructed, 1 connected (no doors detected at the photo tier); footprint not measurable (no ground truth) |
 | G.6 | Photo ±8 % / video ±3 % walls; calibration at every tier | `bench/gates.py`, `bench/calibrate.py` | `bench/results/gates.md` | ❌ accuracy not met (scale off 3–12 %); calibration met at every tier after Fix 3 (wide intervals) |
-| 3.1 | Head-to-head vs a consumer app on 2 rooms | `bench/head_to_head.py` | `bench/results/head_to_head.md` | ❌ beat or tie on 9/13 dimensions (69 %, gate 70 %); wall positions within 1.2 cm of the laser except one honka notch (−19.8 cm, three dimensions). Reference: Polycam's own mesh exports shipped with MuSHRoom (version not recorded) |
-| 4.1 | Fix declaration (worst gate, root cause, prediction) | `fix/DECLARATION.md` | doc, tags `fix2-before`, `fix3-before` | ✅ fixes 1–3 |
-| 4.2 | Fix shipped; regenerable before/after + diff | `fix/`, `bench/gates.py`, `bench/calibrate.py` | tags `fix3-before` / `fix3-after` | ✅ Fix 3: coverage 0/7 → 7/7, prediction (≥ 6/7) met; widths wider than predicted, explained |
+| 3.1 | Head-to-head vs a consumer app on 2 rooms | `bench/head_to_head.py` | `bench/results/head_to_head.md` | ✅ beat or tie on 7/8 dimensions (88 %, gate 70 %); every shared wall position within 1.2 cm of the laser. Reference: Polycam's own mesh exports shipped with MuSHRoom (version not recorded) |
+| 4.1 | Fix declaration (worst gate, root cause, prediction) | `fix/DECLARATION.md` | doc + `fix/DECLARATION.pdf`, tags `fix2-before`, `fix3-before`, `fix4-before` | ✅ fixes 1–4 |
+| 4.2 | Fix shipped; regenerable before/after + diff | `fix/`, `bench/gates.py`, `bench/calibrate.py` | tags `fix3-*`, `fix4-before` / `fix4-after` | ✅ Fix 4: repeatability 21 % → 40 %, all predictions met. Fix 3: coverage 0/7 → 7/7, prediction (≥ 6/7) met; widths wider than predicted, explained |
 | 5.1 | Incremental commit history | git log | — | ✅ |
 | D.3 | README: fresh capture → result in under 15 min | `README.md` | — | 🟡 measured 4 min 20 s before the damage models (+5 GB, not re-timed) |
 | D.4 | Reproduction bundle | `bench/gates.py`, caches under `out/cache` | — | 🟡 regeneration commands at the top of `TECHNICAL_REPORT.md`; raw data packaging not done |

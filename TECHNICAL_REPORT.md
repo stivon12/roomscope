@@ -51,7 +51,7 @@ intervals then carry that difference.
 | Ceiling vs laser | 7–28 cm off on 3 rooms | 8–28 cm off (3–12 %) on 4 | iPad: 2/2 within 0.8 cm; MuSHRoom iPhone: −2.7 / −3.3 cm (ceilings read 2.4 % short, shared by Polycam); repeat spread 0.5–0.6 cm |
 | Wall length vs laser | too few clean walls to state | too few clean walls to state | median 8.7 cm on 21 walls (wider ARKitScenes set) |
 | Brief tolerance | ±8 % walls: **not met** | ±3 % walls: **not met** | (ceiling 1.5 cm: 2/4) |
-| Intervals cover the truth | 4/4, at ±103 % | 4/4, at ±25 % | 10/12 (ceiling ±3.5 cm) |
+| Intervals cover the truth | 4/4, at ±103 % | 4/4, at ±25 % | 8/9 (ceiling ±3.5 cm) |
 | Multi-room | 6 rooms reconstructed; 1 connected (§7) | 1 room: COLMAP splits the walk | 6 rooms, with adjacency |
 | Runtime (M1, 16 GB) | ~15 s per room (~90 s cold) | ~4–5 min | ~35 s per room cold, plus ~2.5 min damage |
 
@@ -124,7 +124,7 @@ the laser surface nearest our edge, which scored an edge on a cabinet front agai
 
 | Tier | Fitted on | Benchmark coverage (nominal 0.9) | Typical half-width | Note |
 |---|---|---|---|---|
-| LiDAR | 6 ARKitScenes rooms + MuSHRoom vr_room, coffee_room (disjoint) | 10/12 | ceiling ±3.5 cm; walls ±17–48 cm | structural wall reference; two-level laser ceilings are not scored (as stepped walls) |
+| LiDAR | 6 ARKitScenes rooms + MuSHRoom vr_room, coffee_room (disjoint) | 8/9 | ceiling ±3.5 cm; walls ±17–48 cm | structural wall reference; two-level laser ceilings are not scored (as stepped walls) |
 | Video | 10 captures, 8 rooms (disjoint) | 4/4 | ±25 % | held-out coverage 1.00 [0.54–1.00] (n=10) |
 | Photo | 8 captures, 7 rooms (disjoint) | 4/4 | ±103 % | held-out coverage not computable (one ceiling per room) |
 
@@ -161,6 +161,13 @@ the shipped fix and a regenerable before/after (`fix/DECLARATION.md`, tags `fixN
      one full rerun confirmed the same interval width.
    - **Caught before the after-run:** transferring the normalised (not relative) quantile from ceilings to
      walls produced a −1.5 to 7.3 m wall; it was replaced.
+4. **The same room measured twice gave different walls** (LiDAR repeatability 3/14, the worst gate).
+   - **Root cause (per-wall audit):** depth repeats (ceilings agree to 0.6 cm, observed walls within ±2 cm of the
+     laser in both captures), but floor-boundary notches cut the same wall into different pieces per capture.
+   - **Fix:** floor-boundary edges up to furniture depth (0.8 m) are merged, not reported as walls.
+   - **Results:** repeatability **4/10 (40 %)**, honka pair 4/6 (predicted ≥ 40 %: met); floor-boundary edges
+     7 → 3; head-to-head **7/8 (88 %)** (predicted ≥ 70 %: met); no scored wall worse. 421337 stays 0/4: its
+     remaining edges border floor never seen, the declared next fix.
 
 **Also fixed while building the benchmark:** the photo tier dropped rooms whose seen floor ended in a diagonal.
 The diagonal is a visibility limit, so it is now replaced by axis-aligned legs that snap to walls. All photo runs
@@ -175,9 +182,9 @@ produce rooms; LiDAR walls are unchanged.
     protocol asks for.
   - **Status:** photo whole-property stitch gate **not met**. Next: capture with the protocol's doorway shots.
 - **Multi-room video:** COLMAP fragments the walk on plain walls and doorways; the largest piece (one room) is kept.
-- **Walls on furniture:** a wall taken from a wardrobe, counter or cabinet front, or from where the floor stopped
-  being visible, is 10–60 cm off. `observed_fraction` can still read high there, so the interval does not widen
-  enough.
+- **Unseen sides of a room:** where the camera never saw the floor up to a wall deeper than furniture, the edge
+  stays at the floor boundary, marked inferred (`observed_fraction` 0, widened interval). Furniture fronts with a
+  structural wall within 0.8 m snap to the wall (Fix 4 and the structural snapping).
 - **Two-level ceilings:** if one level is seen only at grazing angles, the other level is reported.
 - **Mirrors, glass, wet-look surfaces:**
   - **Mitigated:** only confidence-2 LiDAR depth is kept, which drops specular and grazing returns.
@@ -190,8 +197,8 @@ produce rooms; LiDAR walls are unchanged.
   observed ceiling and under 20 % of walls observed. It flags an outdoor walk and a glass-walled office, and passes
   all 29 benchmark runs. Flagged captures still produce output, with warnings.
 - **Untested hardware:** no iPhone 15 or newer is in the benchmark.
-- **Head-to-head vs Polycam** (`bench/results/head_to_head.md`): beat or tie on 9 of 13 dimensions (69 %, gate 70 %).
-  Structural-wall snapping and the measured per-device depth scale put both rooms' wall positions within 1.2 cm of the laser
-  except one 0.42 m notch in honka, still taken from the floor boundary (−19.8 cm), which costs three dimensions.
+- **Head-to-head vs Polycam** (`bench/results/head_to_head.md`): beat or tie on **7 of 8 dimensions (88 %, gate
+  70 %: met)**, after structural-wall snapping, the measured per-device depth scale and Fix 4. Every shared wall
+  position is within 1.2 cm of the laser; the one loss is a coffee_room length (+1.4 vs +0.8 cm).
 - **Benchmark gaps** (next step: a physical capture visit): no staged-damage room; no ground truth for the
   multi-room capture; no opening ground truth (the opening gate is unmeasured).
