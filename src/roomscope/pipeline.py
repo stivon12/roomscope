@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -15,6 +16,7 @@ from .core import layout as L
 from .measure import Measurement
 
 
+ROOT = Path(__file__).resolve().parents[2]
 UNOBSERVED_FRAC = 0.3       # wall length fraction below which a wall counts as unobserved
 UNOBSERVED_POS_SE = 0.05    # m, position standard error of an inferred wall
 
@@ -45,7 +47,18 @@ def analyse(cap, corrs, warnings: list[str], single_room: bool = False):
     ccfg = L.layout_config()["ceiling"]
     # no ceiling seen anywhere: fit walls up to the prior maximum instead of assuming a height
     ceil_z = (L.pick_level(cp, "high") - floor.c) if len(cp) > 100 else ccfg["max_m"]
-    walls = L.fit_wall_planes(cloud, floor, ceil_z)
+    on_wall, scfg = None, L.layout_config().get("semantics", {})
+    mode = os.environ.get("ROOMSCOPE_SEM_WALLS", scfg.get("wall_mode", "off"))
+    if scfg.get("enabled") and mode != "off" and getattr(cap, "depth_hw", None) is not None:
+        from .core import semantics as S
+        try:
+            frames = S.label_frames(cap, ROOT / "out" / "cache" / "seg", scfg["interval_s"])
+            cloud.sem, _ = S.label_cloud(cloud, cap, corrs, frames, scfg["radius_m"])
+            on_wall = S.on_wall_mask(cloud.sem, S.label_frames.names, scfg["on_wall_classes"])
+        except Exception as e:                # labels are an aid: geometry alone still produces a plan
+            warnings.append(f"semantic labels unavailable ({type(e).__name__}: {e}); walls judged by geometry only")
+    walls = L.fit_wall_planes(cloud, floor, ceil_z, on_wall=on_wall, sem_mode=mode,
+                              min_labelled=scfg.get("min_labelled", 0.3))
     masks, g, cuts, inferred = L.segment_rooms(cloud, floor, walls, single_room=single_room)
     for a in getattr(L.segment_rooms, "not_entered", []):
         warnings.append(f"a {a:.1f} m2 region was seen (e.g. through a doorway) but the camera never walked into it: "
@@ -364,6 +377,9 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, loa
         cap = load_any(capture, **load_kw)
         warnings += getattr(cap, "load_warnings", [])
         body, cloud, drift_meta = _geometry(cap, drift, warnings)
+        if cloud.sem is not None:
+            from .core.semantics import MODEL_INFO as SEG_INFO
+            models.append(SEG_INFO)
         clouds.append((cloud, cap.align, "cloud.npz"))
     elif tier == "video":
         from .frontends.recon import MODEL_INFO

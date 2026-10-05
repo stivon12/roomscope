@@ -36,3 +36,16 @@ openings:
   door_head_typical_m: 2.03  # standard door height (80 in; EU 2.0-2.1 m): centre of the range when the top is unseen
   door_bottom_max_m: 0.6     # window sills are rarely lower (guarding rules start around 0.8-1.1 m)
   door_width_max_m: 1.6      # double doors ~1.4-1.6 m; a wider gap is an open passage
+
+semantics:
+  # per-frame indoor segmentation (EoMT-L, ADE20K) projected onto LiDAR points (core/semantics.py)
+  enabled: true
+  interval_s: 1.0            # one labelled frame per second of capture (~1 s per frame on an M1)
+  radius_m: 0.05             # fused points take the label of the nearest labelled point within this
+  wall_mode: off             # off | veto (labels turn a plane geometry kept into furniture) | replace (labels decide); off until the laser A/B on 15 captures says otherwise
+  min_labelled: 0.3          # a plane is judged by its labels only if this share of its points is labelled
+  # ADE20K classes that lie ON a wall surface; every other class (wardrobe, cabinet, shelf, sofa, bed,
+  # curtain, radiator, ...) stands in front of one. A plane whose labelled points are mostly not these is
+  # furniture: the majority decides, no tuned share.
+  on_wall_classes: [wall, building, ceiling, floor, windowpane, door, screen door, painting, poster,
+                    bulletin board, signboard, mirror, column, fireplace, blind, sconce, clock]

@@ -57,6 +57,7 @@ class Cloud:
     cams: np.ndarray     # (F,3) camera centres (Manhattan-aligned)
     R: np.ndarray        # 4x4 Manhattan alignment applied on top of the poses/corrections
     rays: np.ndarray     # (M,6) sampled camera->hit segments (cx, cy, cz, px, py, pz): free space + see-over tests
+    sem: np.ndarray | None = None   # (N,) ADE20K class id per point, -1 unlabelled (core/semantics.py); None if not run
 
 
 def rz(a: float) -> np.ndarray:
@@ -218,6 +219,7 @@ class WallPlane:
     segments: list[tuple[float, float]] = field(default_factory=list)  # extents along the other axis
     top: float = 0.0     # 97th percentile height of its points above the floor (how high it was observed)
     kind: str = "wall"   # "wall" separates rooms; "builtin" (tall but seen over: wardrobe, closet) only bounds the polygon
+    by_labels: bool = False   # kind decided by semantic labels (wall_mode replace): not dropped as layered
 
     @property
     def se(self) -> float:
@@ -302,13 +304,20 @@ def seen_over_fraction(cloud: Cloud, floor: HPlane, axis: int, sign: int, offset
 
 
 def fit_wall_planes(cloud: Cloud, floor: HPlane, ceil_z: float, bridge: float = 1.25,
-                    min_top: float = 1.0, max_seen_over: float = 0.5) -> list[WallPlane]:
+                    min_top: float = 1.0, max_seen_over: float = 0.5, on_wall: np.ndarray | None = None,
+                    sem_mode: str = "off", min_labelled: float = 0.3) -> list[WallPlane]:
+    """on_wall: per cloud point 1 = labelled as a class lying on a wall surface, 0 = furniture (stands in front
+    of a wall), -1 = unlabelled (core/semantics.py). sem_mode 'veto': a plane whose labelled points are mostly
+    furniture is not a wall even if geometry kept it; 'replace': labels decide wall vs furniture whenever
+    min_labelled of the plane's points are labelled, and the geometric tests (seen-over, layered) only
+    judge the rest."""
     planes = []
     zrel = cloud.P[:, 2] - floor.z(cloud.P[:, 0], cloud.P[:, 1])
     for face, (axis, sign) in FACES.items():
         m = (cloud.cls == face) & (zrel > 0.05) & (zrel < ceil_z - 0.05)
         Q = cloud.P[m]
         zq = zrel[m]
+        ow = on_wall[m] if on_wall is not None else None
         if len(Q) < 100:
             continue
         x = Q[:, axis]
@@ -333,13 +342,29 @@ def fit_wall_planes(cloud: Cloud, floor: HPlane, ceil_z: float, bridge: float = 
             segs = _segments(Q[sel, 1 - axis], bridge)
             if not segs:
                 continue
+            furniture = None                       # what the labels say, when enough of the plane is labelled
+            if ow is not None and sem_mode != "off":
+                lab = ow[sel]
+                known = lab[lab >= 0]
+                if len(known) >= max(30, min_labelled * len(lab)):
+                    furniture = bool(np.mean(known == 0) > 0.5)
+            # Labels answer "is this structure?", geometry answers "is there a boundary here?". A plane the
+            # labels call furniture is never a wall (it must not separate rooms), but it still bounds the
+            # floor we observed, as a builtin, unless we can see over it (then the floor behind it was
+            # seen and it is dropped, as before). Deleting a wardrobe front outright left the hidden wall
+            # behind it to be guessed (42444946: wall planes off by up to 19 cm).
+            by_labels = sem_mode == "replace" and furniture is not None
+            seen_over = seen_over_fraction(cloud, floor, axis, sign, off, segs, Q[sel, 1 - axis], zq[sel],
+                                           ceil_z) > max_seen_over
             kind = "wall"
-            if seen_over_fraction(cloud, floor, axis, sign, off, segs, Q[sel, 1 - axis], zq[sel], ceil_z) > max_seen_over:
-                # we can see over it: furniture. Tall built-ins (wardrobes, closets) still bound the floor plan.
-                if top < 1.8:
-                    continue
+            if seen_over and top < 1.8 and not (by_labels and not furniture):
+                continue                           # furniture we can see over: the floor behind it was seen
+            if seen_over and not (by_labels and not furniture):
+                kind = "builtin"                   # tall and seen over: wardrobe, closet
+            if furniture and sem_mode in ("veto", "replace"):
                 kind = "builtin"
-            planes.append(WallPlane(face, axis, sign, off, float(np.std(x[sel] - off)), int(sel.sum()), segs, top, kind))
+            planes.append(WallPlane(face, axis, sign, off, float(np.std(x[sel] - off)), int(sel.sum()), segs, top, kind,
+                                    by_labels))
     return drop_layered(planes, ceil_z)
 
 
@@ -368,7 +393,7 @@ def drop_layered(planes: list[WallPlane], ceil_z: float, max_gap: float = 0.6, c
     for i, p in enumerate(planes):
         ext = sum(h - l for l, h in p.segments)
         for j, q in enumerate(planes):
-            if i == j or q.face != p.face or not wall_like(q) or q.n < min_support * p.n:
+            if p.by_labels or i == j or q.face != p.face or not wall_like(q) or q.n < min_support * p.n:
                 continue
             behind = (p.offset - q.offset) * p.sign      # face '+x': room at larger x, so behind = smaller x
             if 0.03 < behind <= max_gap and _overlap(p.segments, q.segments) >= cover * ext:

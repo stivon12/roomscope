@@ -39,6 +39,7 @@ class LidarCapture:
     timestamps: np.ndarray
     root: Path
     align: np.ndarray = field(default_factory=lambda: np.eye(4))   # raw capture world -> poses' world (gravity)
+    depth_hw: tuple[int, int] | None = None                         # depth map size (H, W); None for recon tiers
 
     def world(self, i: int, corr: np.ndarray | None = None):
         """Frame i points/normals/camera centre in world, optionally after a 4x4 world correction."""
@@ -194,7 +195,7 @@ def load_stray(path: Path, pixel_stride: int = 3, min_conf: int = 2, max_depth: 
         ts.append(t)
     if not poses:
         raise RuntimeError(f"no usable frames in {root}")
-    cap = LidarCapture(pts, nrms, np.asarray(poses), Kd, np.asarray(ts), root)
+    cap = LidarCapture(pts, nrms, np.asarray(poses), Kd, np.asarray(ts), root, depth_hw=(Hd, Wd))
     cap.load_warnings = warns
     return cap
 
@@ -293,7 +294,7 @@ def load_arkitscenes(path: Path, pixel_stride: int = 3, frame_stride: int = 1, m
     poses = np.asarray(poses)
     G = _gravity_align(poses, pts, nrms)
     poses = np.einsum("ij,fjk->fik", G, poses)
-    return LidarCapture(pts, nrms, poses, Kd, np.asarray(ts), root, align=G)
+    return LidarCapture(pts, nrms, poses, Kd, np.asarray(ts), root, align=G, depth_hw=depth.shape[:2])
 
 
 def _is_stray(path: Path) -> bool:
