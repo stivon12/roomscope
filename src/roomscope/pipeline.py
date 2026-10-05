@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 import numpy as np
-from shapely.geometry import Polygon
+from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 
 from . import __version__
@@ -82,7 +82,7 @@ def analyse(cap, corrs, warnings: list[str], single_room: bool = False):
     R = cloud.R
     grids = L.opening_evidence(cap, lambda i: R @ corrs[i], faces, [r["poly"] for r in rooms], floor,
                                frame_step=step)
-    openings = L.detect_openings(grids, faces)
+    openings = L.detect_openings(grids, faces, cloud.cams[:, :2])
     return rooms, faces, grids, openings, cloud
 
 
@@ -122,8 +122,28 @@ def _wall_line(w, lo: float, hi: float):
     return LineString([(w.offset, lo), (w.offset, hi)] if w.axis == 0 else [(lo, w.offset), (hi, w.offset)])
 
 
+# An open boundary is where the partition put two rooms' floors side by side with no wall between them:
+# the passage is certain (both floors were walked or seen), its exact extent is not (it is the partition
+# line, not a detected door frame). Reported at an even confidence rather than an invented one.
+SHARED_BOUNDARY_CONF = 0.5
+
+
+def _opening_height(o, wall_h: float) -> dict:
+    """Measured when wall was seen above the opening; otherwise a range flagged observed: false, from
+    the top of what was seen through it up to the wall height, centred on the standard door height
+    (doors) or the middle of that range (windows)."""
+    h = o.v1 - o.v0
+    if o.head_observed:
+        return L.meas_len(h, o.height_se).to_json()
+    lo, hi = h, max(h, wall_h - o.v0)
+    typical = L.layout_config().get("openings", {}).get("door_head_typical_m", 2.03) - o.v0
+    v = float(np.clip(typical, lo, hi)) if o.type != "window" else 0.5 * (lo + hi)
+    return Measurement(v, lo, hi, method="not-observed:top-unseen", observed=False).to_json()
+
+
 def assemble(rooms, faces, grids, openings, warnings) -> dict:
     out_rooms, surfaces, adjacency = [], [], []
+    shared_links = []        # (room, neighbour, opening id) from open boundaries of the partition
     op_records = []          # (room_id, opening_json, OpeningEst)
     for ri, r in enumerate(rooms):
         rid = f"R{ri + 1}"
@@ -174,14 +194,35 @@ def assemble(rooms, faces, grids, openings, warnings) -> dict:
             oj = {
                 "id": f"{rid}-O{oi + 1}", "type": o.type, "wall_id": wall["id"],
                 "width": L.meas_len(o.u1 - o.u0, o.width_se).to_json(),
-                "height": L.meas_len(o.v1 - o.v0, o.height_se).to_json(),
+                "height": _opening_height(o, height.value),
                 "offset": L.meas_len(offset, np.hypot(o.width_se, plane.se if plane else 0.03)).to_json(),
                 "confidence": round(o.conf, 3),
             }
             if o.type == "window":
                 oj["sill"] = L.meas_len(o.v0, o.height_se).to_json()
+            if not o.head_observed:
+                hj = oj["height"]
+                warnings.append(f"{oj['id']} ({o.type}): top not seen, height reported as {hj['lo']:.2f}-{hj['hi']:.2f} m, "
+                                "not a measurement")
             ops_json.append(oj)
             op_records.append((rid, oj, o))
+        # an open boundary with another room (no wall: doorway or open junction found by the partition) is
+        # a full-width, full-height opening onto that room
+        for k, e in enumerate(edges):
+            if not e.shared:
+                continue
+            p, q = corners[k], corners[(k + 1) % n]
+            mid = Point((p[0] + q[0]) / 2, (p[1] + q[1]) / 2)
+            nbr = [j for j, o in enumerate(rooms) if j != ri and o["poly"].distance(mid) < 0.1]
+            if not nbr:
+                continue
+            se = np.hypot(pos_se[k - 1], pos_se[(k + 1) % n])
+            oj = {"id": f"{rid}-O{len(ops_json) + 1}", "type": "opening", "wall_id": walls_json[k]["id"],
+                  "width": L.meas_len(float(np.hypot(q[0] - p[0], q[1] - p[1])), se).to_json(),
+                  "height": height.to_json(), "offset": L.meas_len(0.0, 0.0).to_json(),
+                  "confidence": SHARED_BOUNDARY_CONF}
+            ops_json.append(oj)
+            shared_links.append((rid, f"R{nbr[0] + 1}", oj["id"]))
         name = _name_room(poly, ri)
         out_rooms.append({
             "id": rid, "name": name, "polygon": [[round(x, 4), round(y, 4)] for x, y in corners],
@@ -214,6 +255,28 @@ def assemble(rooms, faces, grids, openings, warnings) -> dict:
                 continue
             conf = float(np.clip(ov / max(a.u1 - a.u0, b.u1 - b.u0), 0, 1) * min(a.conf, b.conf) ** 0.5)
             adjacency.append({"room_a": ra, "room_b": rb, "via": ja["id"], "confidence": round(conf, 3)})
+
+    linked = {frozenset((a["room_a"], a["room_b"])) for a in adjacency}
+    # a door or opening seen from one side only leads to the room whose floor lies just beyond it
+    for ra, oj, o in op_records:
+        if o.type == "window":
+            continue
+        f = o.face
+        um = (o.u0 + o.u1) / 2
+        for depth in (0.3, 0.6):
+            xy = [0.0, 0.0]
+            xy[f.axis], xy[1 - f.axis] = f.offset - f.sign * depth, um
+            hit = [j for j, r in enumerate(rooms) if f"R{j + 1}" != ra and r["poly"].contains(Point(*xy))]
+            if hit:
+                rb = f"R{hit[0] + 1}"
+                if frozenset((ra, rb)) not in linked:
+                    linked.add(frozenset((ra, rb)))
+                    adjacency.append({"room_a": ra, "room_b": rb, "via": oj["id"], "confidence": round(o.conf, 3)})
+                break
+    for ra, rb, oid in shared_links:
+        if frozenset((ra, rb)) not in linked:
+            linked.add(frozenset((ra, rb)))
+            adjacency.append({"room_a": ra, "room_b": rb, "via": oid, "confidence": SHARED_BOUNDARY_CONF})
 
     polys = [r["poly"] for r in rooms]
     union = unary_union(polys)

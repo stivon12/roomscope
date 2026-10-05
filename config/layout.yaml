@@ -24,3 +24,15 @@ rooms:
     cell_m: 0.04             # partition grid (persistence is scale-free; 4 cm keeps it fast)
     obstacle_band_m: [1.0, 1.3]   # wall-face points at this height above the floor are structure: furniture is
                                   # mostly lower, and scans held low still see walls here
+openings:
+  # door vs window from positive evidence (core/layout.detect_openings), in this order:
+  # 1. the camera path crosses the opening -> door (wider than door_width_max_m: opening);
+  # 2. solid wall seen below it over >= sill_solid_frac of its width -> window;
+  # 3. no wall seen below, head at least door_head_min_m, see-through starting no higher than
+  #    door_bottom_max_m -> door (opening if wider than door_width_max_m); otherwise window.
+  # The bottom of a doorway is rarely seen through from chest height, hence 3.
+  sill_solid_frac: 0.5
+  door_head_min_m: 1.8       # doors are ~2.0-2.1 m high
+  door_head_typical_m: 2.03  # standard door height (80 in; EU 2.0-2.1 m): centre of the range when the top is unseen
+  door_bottom_max_m: 0.6     # window sills are rarely lower (guarding rules start around 0.8-1.1 m)
+  door_width_max_m: 1.6      # double doors ~1.4-1.6 m; a wider gap is an open passage

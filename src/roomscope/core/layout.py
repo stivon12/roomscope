@@ -943,6 +943,7 @@ class OpeningEst:
     conf: float
     width_se: float
     height_se: float
+    head_observed: bool = True   # wall seen above the opening; else its top is only a lower bound
 
 
 def opening_evidence(cap, frame_corr, faces: list[Face], room_polys: list[Polygon], floor: HPlane,
@@ -1022,11 +1023,34 @@ def _refine_edge(pts: np.ndarray, coarse: float, side: int, v0: float, v1: float
     return est_c, se
 
 
-def detect_openings(grids, faces: list[Face]) -> list[OpeningEst]:
+def _path_crosses(cams_xy: np.ndarray, f: Face, u0: float, u1: float) -> bool:
+    """Did the camera path cross face f's line between u0 and u1 (walk through the opening)?"""
+    if cams_xy is None or len(cams_xy) < 2:
+        return False
+    k = f.axis
+    d = cams_xy[:, k] - f.offset
+    idx = np.flatnonzero(np.sign(d[:-1]) * np.sign(d[1:]) < 0)
+    for i in idx:
+        t = d[i] / (d[i] - d[i + 1])
+        u = cams_xy[i, 1 - k] + t * (cams_xy[i + 1, 1 - k] - cams_xy[i, 1 - k])
+        if u0 <= u <= u1:
+            return True
+    return False
+
+
+def detect_openings(grids, faces: list[Face], cams_xy: np.ndarray | None = None) -> list[OpeningEst]:
     """Openings need POSITIVE evidence: depth seen through the wall plane (>= 25 cm beyond it, set in
     opening_evidence), outnumbering solid returns over most of the gap. A gap that is only occlusion or
     no data has no through-points and is not an opening. Only faces snapped to an observed
-    wall are searched: on an inferred edge there is no wall to have an opening in."""
+    wall are searched: on an inferred edge there is no wall to have an opening in.
+
+    Door or window, also from positive evidence (config/layout.yaml openings): the bottom of a doorway
+    is the part least seen through (from chest height only steep rays pass it and land beyond), so a
+    missing through-band at the floor is not a sill. A window is a gap with wall seen below it; a door
+    is a gap the camera walked through, or one with no wall seen below it whose head is at door height."""
+    ocfg = layout_config().get("openings", {})
+    sill_frac, head_min = ocfg.get("sill_solid_frac", 0.5), ocfg.get("door_head_min_m", 1.8)
+    bottom_max, width_max = ocfg.get("door_bottom_max_m", 0.6), ocfg.get("door_width_max_m", 1.6)
     out = []
     for G, f in zip(grids, faces):
         if not f.observed:
@@ -1047,10 +1071,14 @@ def detect_openings(grids, faces: list[Face]) -> list[OpeningEst]:
             u0c, u1c = f.a + x * GRID, f.a + (x + w) * GRID
             v0c, v1c = y * GRID, (y + h) * GRID
             touches_floor = v0c < 0.15
+            below = S[:y, x:x + w]
+            sill_seen = below.size > 0 and float((below.sum(0) >= 3).mean()) >= sill_frac
+            doorlike = (touches_floor or _path_crosses(cams_xy, f, u0c, u1c)
+                        or (not sill_seen and v1c >= head_min and v0c <= bottom_max))
             if touches_floor and v1c > f.height - 0.08:
                 typ = "opening"
-            elif touches_floor:
-                typ = "door"
+            elif doorlike:
+                typ = "door" if (u1c - u0c) <= width_max else "opening"
             else:
                 typ = "window"
             mid0, mid1 = v0c + 0.1 * (v1c - v0c), v1c - 0.1 * (v1c - v0c)
@@ -1059,7 +1087,7 @@ def detect_openings(grids, faces: list[Face]) -> list[OpeningEst]:
             # vertical edges: head (solid above) and sill (solid below)
             cu0, cu1 = u0 + 0.1 * (u1 - u0), u1 - 0.1 * (u1 - u0)
             pts_vu = G["pts"][:, ::-1] if len(G["pts"]) else G["pts"]
-            if typ == "opening":
+            if typ == "opening" and v1c > f.height - 0.08:     # full height: no head to measure
                 v1, s3 = f.height, 0.0
             else:
                 v1, s3 = _refine_edge(pts_vu, v1c, +1, cu0, cu1, along=0)
@@ -1068,8 +1096,13 @@ def detect_openings(grids, faces: list[Face]) -> list[OpeningEst]:
             else:
                 v0, s2 = 0.0, 0.0
             frac = (T[y:y + h, x:x + w].sum() + 1) / (T[y:y + h, x:x + w].sum() + S[y:y + h, x:x + w].sum() + 1)
+            # the top is measured only if wall was seen above it (a floor-only scan sees walls to ~1.3 m,
+            # so the see-through region of a door simply stops where the scan stopped)
+            above = S[y + h:, x:x + w]
+            head_seen = (typ == "opening" and v1c > f.height - 0.08) or \
+                (above.size > 0 and float((above.sum(0) >= 3).mean()) >= sill_frac)
             out.append(OpeningEst(f, typ, u0, u1, v0, v1, float(frac),
-                                  float(np.hypot(s0, s1)), float(np.hypot(s2, s3))))
+                                  float(np.hypot(s0, s1)), float(np.hypot(s2, s3)), head_seen))
     return out
 
 
