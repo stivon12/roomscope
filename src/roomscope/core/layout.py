@@ -887,7 +887,10 @@ def room_polygon(mask: np.ndarray, g: Grid2, walls: list[WallPlane], others: np.
         cs = corners_of(merged)
         n = len(merged)
         lens = [np.hypot(cs[(k + 1) % n][0] - cs[k][0], cs[(k + 1) % n][1] - cs[k][1]) for k in range(n)]
-        bad = [k for k in range(n) if lens[k] < 0.08 or (merged[k].plane is None and lens[k] < 0.3)]
+        # a floor-boundary edge (no wall plane behind it) is where the visible floor stopped at furniture; up to
+        # furniture depth it is a notch, not a wall, and it would cut the real wall differently in every capture
+        bad = [k for k in range(n) if lens[k] < 0.08 or (merged[k].plane is None and lens[k] < 0.3)
+               or (merged[k].plane is None and not merged[k].shared and lens[k] <= STRUCT_REACH)]
         if not bad:
             break
         k = min(bad, key=lambda i: lens[i])
