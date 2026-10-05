@@ -1,17 +1,21 @@
 """Images -> metric posed points, for the video and photo tiers (no depth sensor, no poses).
 
-Model: MapAnything (Meta, Apache-2.0 weights `facebook/map-anything-apache`, 1.23 B parameters,
-4.9 GB). One feed-forward pass over all views returns, per view, metric camera-to-world poses,
-intrinsics, per-pixel 3D points and confidence. Its output is turned into the same LidarCapture the
-LiDAR loader produces, so the shared geometry core (planes, rooms, openings, drift, calibration)
-runs unchanged.
+Default model: Depth Anything 3 (ByteDance; Apache-2.0 checkpoints DA3-BASE, 0.12 B parameters, and
+DA3METRIC-LARGE, 0.35 B), run in its own venv by frontends/da3_worker.py:
+- photos: DA3-BASE on all views of a room jointly -> depth, confidence, poses (up to scale), intrinsics;
+- video:  DA3-BASE conditioned on COLMAP's K and poses -> depth in COLMAP units, consistent with them.
+DA3-BASE is not metric; metres come from DA3METRIC-LARGE's monocular depth on the same views (median
+ratio). bench/scale_cues.py measures that cue against LiDAR.
+MapAnything (Meta, Apache-2.0 `facebook/map-anything-apache`, 1.23 B) is kept behind
+ROOMSCOPE_RECON=mapanything for comparison. Either output becomes the same LidarCapture the LiDAR
+loader produces, so the shared geometry core (planes, rooms, openings, drift, calibration) runs unchanged.
 
-Gravity: MapAnything's world frame is the first camera's frame, which says nothing about "up". Images
+Gravity: the reconstruction's world frame is the first camera's frame, which says nothing about "up". Images
 are upright (phone camera apps store orientation; ARKitScenes frames are rotated upright from their
 sky_direction), so the cameras' average up direction is close to gravity. It is snapped to the
 nearest of the three dominant surface-normal (Manhattan) axes so walls come out exactly vertical.
 
-Weights are fetched by `scripts/fetch_weights.sh` into the Hugging Face cache, never into the repo.
+Weights are fetched into the Hugging Face cache, never into the repo.
 """
 from __future__ import annotations
 
@@ -23,10 +27,16 @@ import numpy as np
 
 from .lidar import LidarCapture, _normals_from_depth
 
+RECON = os.environ.get("ROOMSCOPE_RECON", "da3")
 MODEL_ID = os.environ.get("ROOMSCOPE_MAPANYTHING", "facebook/map-anything-apache")
-MODEL_INFO = {"name": "MapAnything", "version": MODEL_ID, "license": "Apache-2.0",
-              "use": "metric multi-view reconstruction (poses, intrinsics, points) for video/photo tiers"}
+MODEL_INFO = ({"name": "Depth Anything 3", "version": "depth-anything/DA3-BASE + depth-anything/DA3METRIC-LARGE",
+               "license": "Apache-2.0",
+               "use": "multi-view / pose-conditioned depth (BASE) and monocular metric scale (METRIC-LARGE)"}
+              if RECON == "da3" else
+              {"name": "MapAnything", "version": MODEL_ID, "license": "Apache-2.0",
+               "use": "metric multi-view reconstruction (poses, intrinsics, points) for video/photo tiers"})
 CV_TO_OURS = np.diag([1.0, -1.0, -1.0, 1.0])
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def _device():
@@ -293,6 +303,14 @@ def sfm_poses(image_paths: list[Path], work: Path, K: np.ndarray | None, overlap
 
     work = Path(work)
     img_dir = work / "images"
+    same = (work / "sfm.json").exists() and img_dir.is_dir() and \
+        sorted((q.name, q.stat().st_size) for q in img_dir.iterdir()) == sorted((q.name, q.stat().st_size) for q in image_paths)
+    if same and (work / "sfm.args.json").exists() and json.loads((work / "sfm.args.json").read_text()) == \
+            {"overlap": overlap, "K": None if K is None else np.round(K, 3).tolist()}:
+        print("SfM: reusing", work / "sfm.json")
+        raw = json.loads((work / "sfm.json").read_text())
+        return {nm: {"pose": np.asarray(r["pose"]), "obs": [(np.array(o[:2]), np.array(o[2:])) for o in r["obs"]]}
+                for nm, r in raw.items()}
     shutil.rmtree(img_dir, ignore_errors=True)
     img_dir.mkdir(parents=True)
     for p in image_paths:
@@ -301,6 +319,7 @@ def sfm_poses(image_paths: list[Path], work: Path, K: np.ndarray | None, overlap
     if K is not None:
         cmd += ["--K", *(f"{v:.4f}" for v in (K[0, 0], K[1, 1], K[0, 2], K[1, 2]))]
     subprocess.run(cmd, check=True)
+    (work / "sfm.args.json").write_text(json.dumps({"overlap": overlap, "K": None if K is None else np.round(K, 3).tolist()}))
     raw = json.loads((work / "sfm.json").read_text())
     return {nm: {"pose": np.asarray(r["pose"]), "obs": [(np.array(o[:2]), np.array(o[2:])) for o in r["obs"]]}
             for nm, r in raw.items()}
@@ -450,3 +469,136 @@ def fuse_sfm_depth(views: list[dict], names: list[str], sfm: dict, image_sizes: 
             "per_view_scale_spread": float(np.std([np.log(k) for k, _, _ in per_view.values()])),
             "median_view_residual": float(np.median([e for _, _, e in per_view.values()]))}
     return out, kept, diag
+
+
+# ---------------------------------------------------------------- Depth Anything 3 (default)
+
+def _da3_job(job: dict, cache: Path | None, tag: str) -> dict:
+    """Run frontends/da3_worker.py in .venv-da3 (cached by image names/sizes and job inputs)."""
+    import hashlib
+    import json
+    import subprocess
+    import tempfile
+    key = hashlib.sha1((tag + json.dumps(job, sort_keys=True) + "|".join(
+        f"{Path(p).name}:{Path(p).stat().st_size}" for p in job["images"])).encode()).hexdigest()[:12]
+    cp = None if cache is None else Path(cache) / f"da3_{tag}_{key}.npz"
+    if cp is not None and cp.exists():
+        return dict(np.load(cp))
+    py = ROOT / ".venv-da3" / "bin" / "python"
+    if not py.exists():
+        raise RuntimeError(f"Depth Anything 3 venv missing at {py}; see README (or set ROOMSCOPE_RECON=mapanything)")
+    with tempfile.TemporaryDirectory() as td:
+        jp, op = Path(td) / "job.json", Path(td) / "out.npz"
+        jp.write_text(json.dumps(job))
+        env = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+        subprocess.run([str(py), "-m", "roomscope.frontends.da3_worker", str(jp), str(op)], check=True, env=env)
+        z = dict(np.load(op))
+    if cp is not None:
+        cp.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(cp, **z)
+    return z
+
+
+def _da3_views(z: dict, conf_percentile: float) -> list[dict]:
+    """Worker output -> view dicts (pts_cam OpenCV from z-depth and K at processing resolution)."""
+    out = []
+    for i in range(int(z["n"])):
+        dz, K = z[f"depth_{i}"].astype(np.float64), z[f"K_{i}"].astype(np.float64)
+        H, W = dz.shape
+        uu, vv = np.meshgrid(np.arange(W) + 0.5, np.arange(H) + 0.5)
+        pts = np.stack([(uu - K[0, 2]) / K[0, 0] * dz, (vv - K[1, 2]) / K[1, 1] * dz, dz], -1)
+        c = z[f"conf_{i}"]
+        m = np.isfinite(dz) & (dz > 0)
+        if m.any():
+            m &= c >= np.percentile(c[m], conf_percentile)
+        out.append({"pts_cam": pts.astype(np.float32), "pose": z[f"pose_{i}"].astype(np.float64),
+                    "K": K.astype(np.float32), "mask": m, "conf": c,
+                    "metric_z": z.get(f"metric_{i}")})
+    return out
+
+
+def _metric_scale(views: list[dict]) -> tuple[float, list[float]]:
+    """Metres per reconstruction unit: per view the median of DA3METRIC z / reconstruction z over its
+    confident pixels, then the median over views."""
+    per = []
+    for v in views:
+        mz, z = v.get("metric_z"), v["pts_cam"][..., 2]
+        if mz is None:
+            continue
+        m = v["mask"] & (mz > 0)
+        if m.sum() > 500:
+            per.append(float(np.median(mz[m] / z[m])))
+    return (float(np.median(per)) if per else 1.0), per
+
+
+def run_da3(image_paths: list[Path], cache: Path | None = None, conf_percentile: float = 30.0) -> list[dict]:
+    """Photos: DA3-BASE multi-view (known K passed when every image has one), scaled to metres by
+    DA3METRIC-LARGE. Returns view dicts like run_mapanything (pts_cam, pose, K, mask, conf)."""
+    Ks = [image_intrinsics(p) for p in image_paths]
+    use_K = all(k is not None for k in Ks)
+    job = {"mode": "multiview", "images": [str(p) for p in image_paths],
+           "K": [k.tolist() for k in Ks] if use_K else None, "metric": True}
+    views = _da3_views(_da3_job(job, cache, "mv"), conf_percentile)
+    s, per = _metric_scale(views)
+    for v in views:
+        v["pts_cam"] = v["pts_cam"] * s
+        v["pose"][:3, 3] *= s
+        v["K_source"] = np.array(1 if use_K else 0)
+    run_da3.diag = {"metric_scale": s, "per_view_metric_scale": per}
+    return views
+
+
+def run_da3_posed(image_paths: list[Path], K: np.ndarray, sfm: dict, cache: Path | None = None,
+                  conf_percentile: float = 30.0) -> tuple[list[dict], float, dict]:
+    """Video: DA3-BASE conditioned on COLMAP's K and poses, depth in COLMAP units. Each view's depth is
+    then corrected by k_i = median(SfM z / DA3 z) over its triangulated SIFT points (DA3 got single views
+    25 % off on 42444946), and everything is put in metres by DA3METRIC-LARGE (_metric_scale).
+    Returns views (metric, OpenCV), metres per SfM unit, diagnostics."""
+    poses = [np.asarray(sfm[p.name]["pose"], float) for p in image_paths]
+    job = {"mode": "posed", "images": [str(p) for p in image_paths], "K": [np.asarray(K).tolist()] * len(image_paths),
+           "poses_c2w": [T.tolist() for T in poses], "metric": True}
+    z = _da3_job(job, cache, "posed")
+    views = _da3_views(z, conf_percentile)
+    ks, npts = [], []
+    for v, p, T in zip(views, image_paths, poses):
+        dz = v["pts_cam"][..., 2]
+        H, W = dz.shape
+        W0, H0 = z[f"size_{len(ks)}"]
+        Tinv = np.linalg.inv(T)
+        r = []
+        for xy, X in sfm[p.name]["obs"]:
+            Xc = Tinv[:3, :3] @ X + Tinv[:3, 3]
+            u, w = int(xy[0] * W / W0), int(xy[1] * H / H0)
+            if Xc[2] > 0 and 0 <= u < W and 0 <= w < H and v["mask"][w, u]:
+                r.append(Xc[2] / dz[w, u])
+        ks.append(float(np.median(r)) if len(r) >= 20 else np.nan)
+        npts.append(len(r))
+    kmed = float(np.nanmedian(ks)) if np.isfinite(ks).any() else 1.0
+    ks = [k if np.isfinite(k) else kmed for k in ks]
+    for v, k in zip(views, ks):
+        v["pts_cam"] = v["pts_cam"] * k
+    s, per = _metric_scale(views)
+    for v in views:
+        v["pts_cam"] = v["pts_cam"] * s
+        v["pose"][:3, 3] *= s
+    diag = {"recon": "da3", "da3_seconds": float(z["seconds"]), "per_view_sfm_correction": [round(k, 4) for k in ks],
+            "sfm_points_per_view": npts, "per_view_metric_scale": [round(x, 4) for x in per]}
+    return views, s, diag
+
+
+def reconstruct(image_paths: list[Path], cache: Path | None = None) -> list[dict]:
+    """Unposed images -> metric views, with the backend chosen by ROOMSCOPE_RECON."""
+    if RECON == "mapanything":
+        views = run_mapanything(image_paths, cache=cache)
+        reray_known_K(views, image_paths)       # MapAnything ignores the given K; DA3 uses it directly
+        return views
+    return run_da3(image_paths, cache=cache)
+
+
+def reconstruct_posed(image_paths: list[Path], K: np.ndarray, sfm: dict,
+                      cache: Path | None = None) -> tuple[list[dict], float, dict]:
+    """COLMAP-posed images -> metric views, metres per SfM unit, diagnostics (ROOMSCOPE_RECON backend)."""
+    if RECON == "mapanything":
+        views, s = run_mapanything_posed(image_paths, K, [sfm[p.name]["pose"] for p in image_paths], cache=cache)
+        return views, s, {"recon": "mapanything"}
+    return run_da3_posed(image_paths, K, sfm, cache=cache)

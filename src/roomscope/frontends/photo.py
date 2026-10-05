@@ -1,6 +1,6 @@
 """Photo tier: 2-8 stills per room, one sub-folder per room, no depth and no poses.
 
-Each room folder is reconstructed on its own by MapAnything (frontends/recon.py) and analysed by the
+Each room folder is reconstructed on its own (frontends/recon.py: Depth Anything 3 by default) and analysed by the
 shared core as a single room. The rooms are then placed into one property frame by core/stitch.py.
 """
 from __future__ import annotations
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .recon import reray_known_K, run_mapanything, to_capture
+from .recon import reconstruct, to_capture
 
 IMG_EXT = {".jpg", ".jpeg", ".png", ".heic", ".heif"}
 
@@ -64,6 +64,5 @@ def load_room(folder: Path, scale: float = 1.0, work: Path | None = None):
     ims = images(folder, work)
     if len(ims) < 2:
         raise ValueError(f"{folder.name}: need at least 2 photos, found {len(ims)}")
-    views = run_mapanything(ims, cache=work / "cache")
-    reray_known_K(views, ims)
+    views = reconstruct(ims, cache=work / "cache")
     return to_capture(views, np.arange(len(ims), dtype=float), folder, scale=scale)

@@ -2,7 +2,7 @@
 
 1. Keyframes: the video is cut into N equal time bins; in each bin the sharpest frame (variance of
    the Laplacian, which rejects motion blur) is kept, so coverage follows the walk evenly.
-2. MapAnything reconstructs all keyframes jointly (frontends/recon.py), in metric units.
+2. Depth Anything 3 (or MapAnything, ROOMSCOPE_RECON) gives dense metric depth (frontends/recon.py).
 3. The result is a LidarCapture, so the shared core runs unchanged.
 
 Frames are written to out/<capture>/frames/ so a run can be inspected and replayed.
@@ -14,7 +14,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .recon import (clean_sfm_track, reray_known_K, run_mapanything, run_mapanything_posed, sfm_poses,
+from .recon import (clean_sfm_track, reconstruct, reconstruct_posed, sfm_poses,
                     to_capture)
 
 VIDEO_EXT = {".mov", ".mp4", ".m4v", ".avi"}
@@ -153,10 +153,10 @@ def load_video(path: Path, work_dir: Path, n_frames: int = 32, scale: float = 1.
     1. n_dense keyframes (sharpest per time bin, one decoding pass);
     2. COLMAP (subprocess): SIFT, exhaustive matching (loop closures), incremental mapping, known K fixed;
     3. drop frames that break the camera path's continuity (clean_sfm_track);
-    4. MapAnything on n_frames of the registered frames, conditioned on COLMAP's intrinsics and poses:
-       metric depth and metric poses (run_mapanything_posed).
+    4. dense depth on n_frames of the registered frames, conditioned on COLMAP's intrinsics and poses
+       (recon.reconstruct_posed: DA3-BASE + DA3METRIC-LARGE scale by default, MapAnything optional).
     On 42444946 step 2 registered 145/200 frames; 112 within 1.9 cm (median) of ARKit after a similarity
-    fit. Falls back to method="mapanything" (MapAnything alone on n_frames keyframes) when fewer than 8
+    fit. Falls back to an unposed reconstruction of n_frames keyframes (recon.reconstruct) when fewer than 8
     frames register."""
     import json
     video = find_video(path)
@@ -178,17 +178,15 @@ def load_video(path: Path, work_dir: Path, n_frames: int = 32, scale: float = 1.
         if len(reg) >= 8 and K is not None:
             pick = [reg[int(round(j))] for j in np.linspace(0, len(reg) - 1, min(n_frames, len(reg)))]
             paths = [dense[i] for i in pick]
-            views, s_metric = run_mapanything_posed(paths, K, [sfm[p.name]["pose"] for p in paths],
-                                                    cache=work_dir / "cache")
-            load_video.diag["metric_scale"] = s_metric
+            views, s_metric, rdiag = reconstruct_posed(paths, K, sfm, cache=work_dir / "cache")
+            load_video.diag.update(metric_scale=s_metric, **rdiag)
             # evaluation provenance (out/, never read back by the pipeline): which frames, metric camera centres
             (work_dir / "video_diag.json").write_text(json.dumps({
                 **load_video.diag, "dropped": dropped,
                 "picked": {p.name: [float(x) for x in v["pose"][:3, 3]] for p, v in zip(paths, views)},
                 "frame_times": {p.name: float(t) for p, t in zip(dense, ts_d)}}, indent=1))
             return to_capture(views, ts_d[pick], Path(path), scale=scale, snap=False)
-        print("SfM too sparse or no intrinsics; falling back to MapAnything alone")
+        print("SfM too sparse or no intrinsics; falling back to an unposed reconstruction")
     paths, ts = extract_keyframes(video, work_dir / "frames", n=n_frames)
-    views = run_mapanything(paths, cache=work_dir / "cache")
-    reray_known_K(views, paths)
+    views = reconstruct(paths, cache=work_dir / "cache")
     return to_capture(views, ts, Path(path), scale=scale)

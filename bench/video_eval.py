@@ -6,7 +6,7 @@ Per capture:
 - SfM: frames registered / dropped as path jumps; Sim3 ATE of the registered frames vs ARKit's trajectory
   (robust: inliers re-fitted below 2.5x median error; inlier share reported). Frame time = the frame's
   .pincam timestamp (lowres_wide.traj starts later than the video).
-- Metric scale: MapAnything's metric camera centres vs ARKit (both metric): scale of the similarity fit,
+- Metric scale: the reconstruction's metric camera centres vs ARKit (both metric): scale of the similarity fit,
   reported as error in %. This is the number the +-3 % video gate depends on. ARKit's trajectory is VIO,
   itself good to ~1-2 cm here, so it is a reference, not truth.
 - Laser: ceiling height error, wall-plane offsets, wall lengths (eval/laser.py, rigid registration).
@@ -61,7 +61,8 @@ def evaluate(scene: Path, out: Path, rerun: bool) -> dict:
     if diag_p.exists():
         diag = json.loads(diag_p.read_text())
         row.update(registered=diag["registered"], dense=diag["dense"], dropped=diag["dropped_jumps"],
-                   mapanything_scale_on_sfm=round(diag["metric_scale"], 4))
+                   metric_scale_on_sfm=round(diag["metric_scale"], 4),
+                   recon=diag.get("recon", "mapanything"), da3_seconds=diag.get("da3_seconds"))
         ft = diag["frame_times"]
         sfm = json.loads(sfm_p.read_text())
         names = sorted(n for n in sfm if n in ft and n not in set(diag["dropped"]))
@@ -77,7 +78,7 @@ def evaluate(scene: Path, out: Path, rerun: bool) -> dict:
         row.update(metric_scale_err_pct=round((1 / s - 1) * 100, 2), metric_views_inliers=f"{m2.sum()}/{len(m2)}",
                    metric_ate_median_cm=round(float(np.median(E2[m2])) * 100, 1))
     else:
-        row["note"] = "SfM path not used (fell back to MapAnything alone)"
+        row["note"] = "SfM path not used (fell back to unposed reconstruction)"
     try:
         sc = score_capture(res_dir, scene)
         row["ceiling_err_cm"] = [round(c["err"] * 100, 1) for c in sc["ceil"]]
