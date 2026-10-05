@@ -2,69 +2,82 @@
  {
   "room": "honka",
   "capture": "honka_long",
-  "icp_fitness_laser": 0.30237686091971283,
-  "icp_fitness_polycam": 0.31906289613295985,
+  "icp_fitness_laser": 0.30347241918172363,
+  "icp_fitness_polycam": 0.3212829522181094,
   "rows": [
    {
     "dimension": "R1-W1 position",
-    "ours_err": 0.0031351170891618096,
-    "polycam_err": -0.008945945661992916,
+    "ours_err": 0.0028737936636522576,
+    "polycam_err": -0.010475394906891644,
+    "beat_or_tie": true
+   },
+   {
+    "dimension": "R1-W4 position",
+    "ours_err": 0.008407937097082208,
+    "polycam_err": 0.005507564425899059,
     "beat_or_tie": true
    },
    {
     "dimension": "R1-W5 position",
-    "ours_err": -0.006074847046193099,
-    "polycam_err": 0.0033934454325104113,
+    "ours_err": -0.004828792705134255,
+    "polycam_err": 0.0035373552854851553,
     "beat_or_tie": true
    },
    {
     "dimension": "R1-W6 position",
-    "ours_err": 0.003751254182174313,
-    "polycam_err": -0.00511662372409577,
+    "ours_err": 0.002349604291095486,
+    "polycam_err": -0.010882723591031263,
+    "beat_or_tie": true
+   },
+   {
+    "dimension": "R1-W5 length",
+    "ours_err": -0.006058332805986666,
+    "polycam_err": -0.01639028801693021,
+    "truth_m": 3.7654583328059865,
     "beat_or_tie": true
    },
    {
     "dimension": "R1-W6 length",
-    "ours_err": 0.009209964135355242,
-    "polycam_err": -0.012339391094503327,
-    "truth_m": 0.4028900358646448,
+    "ours_err": 0.007702586368786124,
+    "polycam_err": -0.0140127501923768,
+    "truth_m": 0.40029741363121385,
     "beat_or_tie": true
    },
    {
     "dimension": "R1 ceiling height",
-    "ours_err": -0.02758979941745654,
-    "polycam_err": -0.030967995411423033,
-    "truth_m": 2.3488897994174565,
+    "ours_err": -0.027583910092762398,
+    "polycam_err": -0.0309703954608489,
+    "truth_m": 2.3488839100927623,
     "beat_or_tie": true
    }
   ],
-  "unshared_walls_laser": 3,
+  "unshared_walls_laser": 2,
   "unshared_walls_polycam": 2
  },
  {
   "room": "coffee_room",
   "capture": "coffee_room_long",
-  "icp_fitness_laser": 0.2617574996737474,
-  "icp_fitness_polycam": 0.2983008475865669,
+  "icp_fitness_laser": 0.26608792828692585,
+  "icp_fitness_polycam": 0.299402962037927,
   "rows": [
    {
     "dimension": "R1-W1 position",
-    "ours_err": 0.012078190538908573,
-    "polycam_err": 0.009723058566562748,
-    "beat_or_tie": true
+    "ours_err": 0.017555865557490447,
+    "polycam_err": 0.012241126182525153,
+    "beat_or_tie": false
    },
    {
     "dimension": "R1-W5 position",
-    "ours_err": -0.0017835651278863551,
-    "polycam_err": 0.0017654876764359173,
+    "ours_err": 0.009070284641969906,
+    "polycam_err": 0.025047193826398306,
     "beat_or_tie": true
    },
    {
     "dimension": "R1-W6 length",
-    "ours_err": 0.013861755666794817,
-    "polycam_err": 0.007957570890126942,
-    "truth_m": 3.702038244333205,
-    "beat_or_tie": false
+    "ours_err": 0.008485580915520874,
+    "polycam_err": -0.012806067643873043,
+    "truth_m": 3.7405144190844792,
+    "beat_or_tie": true
    }
   ],
   "unshared_walls_laser": 3,
