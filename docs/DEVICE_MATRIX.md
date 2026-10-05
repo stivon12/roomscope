@@ -24,7 +24,7 @@ until `roomscope calibrate-depth` measures it from one tape distance.
 | Wall length, clean laser reference | median 8.7 cm on 21 walls, 9 over 10 cm (ARKitScenes). Errors come from wall placement, not depth (`docs/WALL_ERRORS.md`) | too few cleanly referenced walls to state; wall planes 10–100 cm off | too few cleanly referenced walls to state |
 | Brief tolerance | (ceiling 1.5 cm) | walls ±3 %: **not met** | walls ±8 %: **not met** |
 | Repeatability (two captures, same room) | 4/9 walls within max(1 cm, 0.5 %) (honka 4/6) | 0/4 | 0/3 |
-| Intervals cover the truth (nominal 90 %) | 8/9 (ceiling ±3.5 cm) | 4/4, at ±25 % (Fix 3) | 4/4, at ±103 % (eye-level photos rarely see the ceiling) |
+| Intervals cover the truth (nominal 90 %) | 8/9 (ceiling ±3.5 cm) | 4/4, at ±25 % (Fix 3) | 2/2, at ±103 % (eye-level photos rarely see the ceiling) |
 | Multi-room | splits rooms; the YC apartment gives 6 rooms | **one room only**: COLMAP breaks a multi-room walk into pieces and keeps the largest | all 6 YC rooms reconstructed, 1 connected: no doors detected at this tier, so 5 rooms are placed aside (stitch gate not met) |
 | Openings | detected, not measured (no opening ground truth) | as LiDAR | as LiDAR |
 | Damage | runs: multi-view vote on the LiDAR surfaces | not run (no per-frame depth) | not run |

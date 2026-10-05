@@ -84,11 +84,24 @@ python third_party/ARKitScenes/download_data.py raw --split Validation --video_i
     --download_dir benchmark/raw/arkitscenes --download_laser_scanner_point_cloud \
     --raw_dataset_assets lowres_depth confidence lowres_wide.traj lowres_wide_intrinsics highres_depth mov
 python bench/calibrate.py --tier lidar          # runs + scores every capture, fits config/calibration.json
-python bench/fix_loop.py                        # fix 1 before/after  -> fix/before_after.md
-python bench/wall_audit.py                      # fix 2 root-cause evidence
+python bench/gates.py run && python bench/gates.py score   # every gate -> bench/results/gates.md
+python bench/head_to_head.py                    # vs Polycam -> bench/results/head_to_head.md
 python bench/drift_eval.py <scene> <no-drift-out>   # drift ablation vs laser
 python bench/drift_inject.py <scene>            # drift known-answer test
 pytest -q tests/
+```
+
+## Reproduce the fix loop
+
+Each round runs on the current code with its fix switched off ("before") and on ("after"); no old branch or
+commit is needed. Results go to `fix/results/fix<N>.md`; the declarations are in `fix/DECLARATION.md`.
+
+```bash
+python fix/reproduce.py 1     # depth-scale correction, 3 captures of room 421337 vs the Faro laser
+python fix/reproduce.py 2     # Mondrian wall-length bins, LiDAR calibration records
+python fix/reproduce.py 3     # conformal calibration for video and photo
+python fix/reproduce.py 4     # floor-boundary notch merge, LiDAR repeat captures
+python fix/reproduce.py all
 ```
 
 ## Layout
@@ -100,7 +113,7 @@ src/roomscope/eval/        laser.py (Faro scoring)  depth_bias.py  pose_drift.py
 bench/                     benchmark, calibration, ablation and fix-loop scripts
 config/                    depth_scale.yaml  calibration.json
 docs/                      COMPLIANCE.md  DEVICE_MATRIX.md  DIAGNOSTICS.md  RESEARCH.md
-fix/                       DECLARATION.md (+ .pdf)  before_after.md
+fix/                       DECLARATION.md (+ .pdf)  reproduce.py  results/
 ```
 
 Weights, datasets and run outputs are never committed (`.gitignore`); folder layout is kept with `.gitkeep`.
