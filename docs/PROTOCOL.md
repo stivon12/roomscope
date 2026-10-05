@@ -35,6 +35,6 @@ Output: `out/<capture>/result.json` and `out/<capture>/plan.png`.
 
 ## Avoid
 - **Mirrors and glass:** do not stand still pointing at a mirror or glass door. Sweep past.
-- **Dark rooms:** if the room is dim, turn the lights on. The pipeline flags low light and widens its intervals rather than guessing.
+- **Dark rooms:** if the room is dim, turn the lights on. Damage detection skips frames that are too dark and says so; the room geometry has no low-light check, so dim captures can come out wrong without a warning.
 - **Moving things:** keep people and pets out of frame. Do not move furniture partway through a capture.
 - **Fast motion:** blur ruins every tier. Count "one-thousand-one" per step.
