@@ -134,7 +134,7 @@ def score():
                 rec["score_error"] = f"{type(ex).__name__}: {ex}"
                 sc = None
             if sc is not None:
-                rec.update(ceil=sc["ceil"], walls=sc["walls"], walls_step=sc["walls_step"],
+                rec.update(ceil=sc["ceil"], ceil_step=sc.get("ceil_step", []), walls=sc["walls"], walls_step=sc["walls_step"],
                            planes=sc["wall_planes"], unscored=len(sc["unscored"]),
                            n_edges=len(sc["wall_planes"]) + len(sc["wall_planes_step"]) + len(sc["unscored"]))
             per[(e["id"], tier)] = rec
@@ -154,6 +154,9 @@ def score():
                   **_rate(abs(x["err"]) <= 0.015 for x in c),
                   "detail": f"|err| median {100 * np.median([abs(x['err']) for x in c]):.2f} cm, max "
                             f"{100 * max(abs(x['err']) for x in c):.2f} cm" if c else ""})
+    cs = [x for r in ok if r["tier"] == "lidar" for x in r.get("ceil_step", [])]
+    if cs:                                   # two laser ceiling levels: listed, not scored (as stepped walls)
+        gates[-1]["detail"] += f"; {len(cs)} room(s) with a two-level laser ceiling not scored"
     # G.2 multi-capture spread <= 1 cm (same room, LiDAR)
     spreads = []
     for g, rs in itertools.groupby(sorted(ok, key=lambda r: r["group"]), key=lambda r: r["group"]):

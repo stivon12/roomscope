@@ -434,6 +434,24 @@ def _level_plane(X: np.ndarray, start_pct: float, win: float = 0.04, keep_m: flo
     return co
 
 
+def _lower_ceiling(C: np.ndarray, cpl: np.ndarray, floor_z: float, cell: float = 0.25, drop: float = 0.15,
+                  min_share: float = 0.25) -> dict | None:
+    """A second, lower ceiling level: 25 cm cells whose downward-facing laser returns sit >= `drop` below the main
+    ceiling plane, covering >= `min_share` of the ceiling cells. Lamps, beams and ducts cover far less."""
+    if len(C) < 200:
+        return None
+    ij = np.floor(C[:, :2] / cell).astype(int)
+    _, inv = np.unique(ij, axis=0, return_inverse=True)
+    inv = inv.ravel()
+    zc = np.array([np.median(C[inv == k, 2]) for k in range(inv.max() + 1)])
+    xy = np.array([C[inv == k, :2].mean(0) for k in range(inv.max() + 1)])
+    below = (np.c_[xy, np.ones(len(xy))] @ cpl) - zc
+    lowc = below >= drop
+    if lowc.mean() < min_share:
+        return None
+    return {"height": float(np.median(zc[lowc]) - floor_z), "share": round(float(lowc.mean()), 2)}
+
+
 def score_result(result: dict, laser_reg: o3d.geometry.PointCloud) -> dict:
     """Per-room ceiling height, per-wall position and per-wall length errors against the laser
     (result frame). Wall lengths use the reference positions of the two walls that bound them.
@@ -447,7 +465,8 @@ def score_result(result: dict, laser_reg: o3d.geometry.PointCloud) -> dict:
 
     L = np.asarray(laser_reg.points)
     LN = np.asarray(laser_reg.normals)
-    out = {"ceil": [], "walls": [], "wall_planes": [], "wall_planes_step": [], "walls_step": [], "unscored": []}
+    out = {"ceil": [], "ceil_step": [], "walls": [], "wall_planes": [], "wall_planes_step": [], "walls_step": [],
+           "unscored": []}
     for room in result["rooms"]:
         poly = Polygon(room["polygon"])
         inner = poly.buffer(-0.2)
@@ -467,6 +486,15 @@ def score_result(result: dict, laser_reg: o3d.geometry.PointCloud) -> dict:
             c = np.array([poly.centroid.x, poly.centroid.y, 1.0])
             ref_h = float(cpl @ c - fpl @ c)
             ch = room["ceiling_height"]
+            low = _lower_ceiling(L[inside & (LN[:, 2] < -0.95)], cpl, fpl @ c)
+            if low is not None:
+                # the laser ceiling has a second level over a large part of the room (soffit, lowered section):
+                # one reference height is ambiguous, as for a stepped wall; reported with both levels, not scored
+                errs = [ch["value"] - ref_h, ch["value"] - low["height"]]
+                out["ceil_step"].append({"room": room["id"], "levels": [ref_h, low["height"]],
+                                         "lower_share": low["share"], "level_errs": errs,
+                                         "err_lower_bound": float(min(errs, key=abs))})
+        if fpl is not None and cpl is not None and not (out["ceil_step"] and out["ceil_step"][-1]["room"] == room["id"]):
             out["ceil"].append({"room": room["id"], "ref": ref_h, "err": ch["value"] - ref_h,
                                 "covered": ch["lo"] <= ref_h <= ch["hi"],
                                 "ref_percentile": float(np.median(cz[np.abs(cz - np.percentile(cz, 90)) < 0.03]) - f_lvl)
