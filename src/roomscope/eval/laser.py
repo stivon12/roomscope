@@ -356,6 +356,24 @@ def _ref_wall_offset(L: np.ndarray, LN: np.ndarray, axis: int, inward: np.ndarra
     return off, int((np.abs(x - off) < 0.02).sum())
 
 
+def _level_plane(X: np.ndarray, start_pct: float, win: float = 0.04, keep_m: float = 0.02) -> np.ndarray | None:
+    """Plane z = a x + b y + c through one horizontal level of laser points: start from the points within
+    `win` of the start_pct percentile height (10: the floor under clutter, 90: the main ceiling above
+    soffits and fittings), then refit 3 times on points within keep_m of the plane, which follows a tilt
+    instead of cutting it."""
+    if len(X) < 200:
+        return None
+    z = X[:, 2]
+    keep = np.abs(z - np.percentile(z, start_pct)) < win
+    A = np.c_[X[:, :2], np.ones(len(X))]
+    for _ in range(3):
+        if keep.sum() < 100:
+            return None
+        co = np.linalg.lstsq(A[keep], z[keep], rcond=None)[0]
+        keep = np.abs(z - A @ co) < keep_m
+    return co
+
+
 def score_result(result: dict, laser_reg: o3d.geometry.PointCloud) -> dict:
     """Per-room ceiling height, per-wall position and per-wall length errors against the laser
     (result frame). Wall lengths use the reference positions of the two walls that bound them."""
@@ -374,12 +392,22 @@ def score_result(result: dict, laser_reg: o3d.geometry.PointCloud) -> dict:
         f_lvl = None
         if len(fz) > 200:
             f_lvl = float(np.median(fz[np.abs(fz - np.percentile(fz, 10)) < 0.03]))
-        if f_lvl is not None and len(cz) > 200:
-            c_lvl = float(np.median(cz[np.abs(cz - np.percentile(cz, 90)) < 0.03]))
-            ref_h = c_lvl - f_lvl
+        # Reference height = ceiling plane minus floor plane at the room centroid, which is what the pipeline
+        # reports (core/layout.ceiling_height). Subtracting a high ceiling percentile from a low floor
+        # percentile is only right when both are level in the result frame; a 0.6 deg residual tilt
+        # (42898811: floor and ceiling both -10 mm/m) inflated the reference by 1.2 cm over a 6 m room.
+        fpl = _level_plane(L[inside & (LN[:, 2] > 0.95)], 10)
+        cpl = _level_plane(L[inside & (LN[:, 2] < -0.95)], 90)
+        if fpl is not None and cpl is not None:
+            c = np.array([poly.centroid.x, poly.centroid.y, 1.0])
+            ref_h = float(cpl @ c - fpl @ c)
             ch = room["ceiling_height"]
             out["ceil"].append({"room": room["id"], "ref": ref_h, "err": ch["value"] - ref_h,
-                                "covered": ch["lo"] <= ref_h <= ch["hi"]})
+                                "covered": ch["lo"] <= ref_h <= ch["hi"],
+                                "ref_percentile": float(np.median(cz[np.abs(cz - np.percentile(cz, 90)) < 0.03]) - f_lvl)
+                                if f_lvl is not None and len(cz) > 200 else None,
+                                "laser_tilt_mm_per_m": [round(1000 * float(np.hypot(*fpl[:2])), 1),
+                                                        round(1000 * float(np.hypot(*cpl[:2])), 1)]})
         if f_lvl is None:
             f_lvl = float(np.percentile(L[LN[:, 2] > 0.95, 2], 5))
         n_c = len(room["polygon"])

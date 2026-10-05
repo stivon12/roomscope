@@ -1,7 +1,7 @@
 {
   "lidar": {
     "ceiling_height": {
-      "q": 1.242776282788946,
+      "q": 1.371338786845104,
       "level": 0.9,
       "nominal_level": 0.9,
       "method": "room-pooled, no PAC margin (n too small)",
@@ -12,22 +12,22 @@
         0.28358206388191054,
         0.9949492366205319
       ],
-      "loro_median_halfwidth": 0.02014391416682705,
-      "loro_interval_score": 0.06258343596371266,
+      "loro_median_halfwidth": 0.022329959096501054,
+      "loro_interval_score": 0.07227129246159478,
       "loro_infinite_folds": 2,
       "loro_per_room": {
         "422829": 1.0,
         "422851": 1.0,
-        "423448": 1.0,
+        "423448": 0.0,
         "434641": 1.0,
-        "434650": 0.0
+        "434650": 1.0
       },
       "raw_coverage": 0.5,
-      "abs_err_median": 0.007005447646707186,
-      "width_to_error": 2.8754642362212812
+      "abs_err_median": 0.007945639979810126,
+      "width_to_error": 2.810341162353377
     },
     "wall_length": {
-      "q": 6.453656009135162,
+      "q": 6.453656009135145,
       "level": 0.9,
       "nominal_level": 0.93,
       "method": "room-pooled",
@@ -38,8 +38,8 @@
         0.8992984732308538,
         0.9995224195875779
       ],
-      "loro_median_halfwidth": 0.1575148676008911,
-      "loro_interval_score": 0.4226383748483491,
+      "loro_median_halfwidth": 0.15751486760089148,
+      "loro_interval_score": 0.4226383748483503,
       "loro_infinite_folds": 0,
       "loro_per_room": {
         "421337": 1.0,
@@ -52,10 +52,10 @@
       },
       "raw_coverage": 0.4339622641509434,
       "abs_err_median": 0.018159071597331433,
-      "width_to_error": 8.67416964334447
+      "width_to_error": 8.674169643344491
     },
     "wall_length:supported": {
-      "q": 6.453656009135162,
+      "q": 6.453656009135145,
       "level": 0.9,
       "nominal_level": 0.93,
       "method": "room-pooled",
@@ -66,8 +66,8 @@
         0.8743414428250078,
         0.9993973766983965
       ],
-      "loro_median_halfwidth": 0.12674889049355315,
-      "loro_interval_score": 0.3349622952522307,
+      "loro_median_halfwidth": 0.12674889049355328,
+      "loro_interval_score": 0.33496229525223165,
       "loro_infinite_folds": 0,
       "loro_per_room": {
         "421337": 1.0,
@@ -79,8 +79,8 @@
         "434650": 1.0
       },
       "raw_coverage": 0.4523809523809524,
-      "abs_err_median": 0.013743349131667859,
-      "width_to_error": 9.222562075607492
+      "abs_err_median": 0.013743349131668303,
+      "width_to_error": 9.222562075607204
     },
     "wall_length:inferred": {
       "q": 3.219174626496386,
