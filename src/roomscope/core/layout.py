@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
+from scipy.ndimage import distance_transform_edt as ndimage_edt
 from scipy.ndimage import gaussian_filter1d
 from shapely.geometry import Point, Polygon
 from shapely.geometry.polygon import orient
@@ -578,7 +579,13 @@ def segment_rooms(cloud: Cloud, floor: HPlane, walls: list[WallPlane], min_area:
             m = np.zeros_like(mask)
             cv2.fillConvexPoly(m, hull, 1)
             return [m], g, cuts, [float(max(0, m.sum() - (mask & m).sum()) * GRID * GRID)]
-    n, lab = cv2.connectedComponents(cut, connectivity=4)
+    rcfg = layout_config().get("rooms", {})
+    if rcfg.get("method") == "scp":
+        lab = _scp_labels(cloud, zrel, mask, g, rcfg)
+        n = int(lab.max()) + 1
+        min_area = rcfg.get("min_room_area_m2", min_area)
+    else:
+        n, lab = cv2.connectedComponents(cut, connectivity=4)
     ci, cj = g.ij(cloud.cams[:, 0], cloud.cams[:, 1])
     inside = (ci >= 0) & (ci < g.h) & (cj >= 0) & (cj < g.w)
     visited = set(np.unique(lab[ci[inside], cj[inside]]).tolist()) - {0}
@@ -594,6 +601,7 @@ def segment_rooms(cloud: Cloud, floor: HPlane, walls: list[WallPlane], min_area:
         cv2.line(barrier, (int(j0), int(i0)), (int(j1), int(i1)), 1, thickness=3)
     k30 = np.ones((int(0.3 / GRID), int(0.3 / GRID)), np.uint8)
     rooms, inferred = [], []
+    segment_rooms.not_entered = []
     for k in range(1, n):
         m = (lab == k).astype(np.uint8)
         if m.sum() * GRID * GRID < min_area or k not in visited:
@@ -603,7 +611,9 @@ def segment_rooms(cloud: Cloud, floor: HPlane, walls: list[WallPlane], min_area:
         # faces of a wall or a furniture slot, not floor.
         ff = np.pad(((m | barrier) > 0).astype(np.uint8), 1)
         cv2.floodFill(ff, None, (0, 0), 2)
-        holes = ((ff[1:-1, 1:-1] == 0) & (m == 0) & (barrier == 0)).astype(np.uint8)
+        # never another room's floor: with a partition that does not follow wall cuts (SCP), the
+        # neighbouring rooms are enclosed by the same outer walls
+        holes = ((ff[1:-1, 1:-1] == 0) & (m == 0) & (barrier == 0) & ((lab == 0) | (lab == k))).astype(np.uint8)
         holes = cv2.morphologyEx(holes, cv2.MORPH_OPEN, k30)
         # only holes that touch the room directly; space sealed off behind a barrier (a closet behind its
         # front, the cavity between two wall faces) is not this room's floor
@@ -615,9 +625,66 @@ def segment_rooms(cloud: Cloud, floor: HPlane, walls: list[WallPlane], min_area:
         holes = np.isin(hl, list(keep)).astype(np.uint8) if keep else np.zeros_like(holes)
         m = (m | holes).astype(np.uint8)
         m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+        if not _entered(m, g, cloud.cams[:, :2], rcfg, (lab > 0) & (lab != k)):   # on the filled room
+            segment_rooms.not_entered.append(float(m.sum() * GRID * GRID))
+            continue
         rooms.append(m)
         inferred.append(float(holes.sum() * GRID * GRID))
     return rooms, g, cuts, inferred
+
+
+def _entered(m: np.ndarray, g: Grid2, cams_xy: np.ndarray, rcfg: dict, others: np.ndarray | None = None) -> bool:
+    """Did the camera walk into this region? A room is kept only if the scanner path entered it
+    (Turner & Zakhor 2014): free space seen through a doorway from outside is not a scanned room.
+    Entered = at least entered_path_m of the camera path (interpolated, so sparse video keyframes
+    count the same as dense LiDAR frames) lies inside the region and more than entered_depth_m from
+    any OTHER region, i.e. past the doorway. Depth is not measured from walls or furniture: in a
+    furnished room the camera walks narrow strips between them."""
+    depth, need = rcfg.get("entered_depth_m", 0.3), rcfg.get("entered_path_m", 0.5)
+    core = m.copy()
+    if others is not None and others.any():
+        far = ndimage_edt(others == 0) * GRID > depth
+        core = (m > 0) & far
+    if len(cams_xy) < 2:
+        return bool(len(cams_xy)) and bool(core[tuple(np.clip(g.ij(*cams_xy[0]), 0, [g.h - 1, g.w - 1]))])
+    seg = np.linalg.norm(np.diff(cams_xy, axis=0), axis=1)
+    step = 0.05
+    pts = np.concatenate([cams_xy[i] + np.outer(np.arange(0, 1, step / max(L_, step)), cams_xy[i + 1] - cams_xy[i])
+                          for i, L_ in enumerate(seg)] + [cams_xy[-1:]])
+    lens = np.concatenate([np.full(max(1, len(np.arange(0, 1, step / max(L_, step)))), min(L_, step))
+                           for L_ in seg] + [[0.0]])
+    i, j = g.ij(pts[:, 0], pts[:, 1])
+    ok = (i >= 0) & (i < g.h) & (j >= 0) & (j < g.w)
+    return float(lens[ok][core[i[ok], j[ok]] > 0].sum()) >= need
+
+
+def _scp_labels(cloud: Cloud, zrel: np.ndarray, mask: np.ndarray, g: Grid2, rcfg: dict) -> np.ndarray:
+    """Room labels on the floor grid by structural-clearance persistence (core/rooms_scp.py).
+
+    Obstacles are wall-face points in a height band (furniture is mostly lower; scans held low still
+    see walls there); free = observed floor + free space from camera rays, minus obstacles. The
+    partition runs on a coarser grid (it is scale-free) and is mapped back to the floor grid."""
+    from . import rooms_scp
+    sc = rcfg["scp"]
+    lo, hi = sc["obstacle_band_m"]
+    wl = np.isin(cloud.cls, ["+x", "-x", "+y", "-y"]) & (zrel >= lo) & (zrel <= hi)
+    obst = np.zeros_like(mask)
+    i, j = g.ij(cloud.P[wl, 0], cloud.P[wl, 1])
+    ok = (i >= 0) & (i < g.h) & (j >= 0) & (j < g.w)
+    obst[i[ok], j[ok]] = 1
+    obst = cv2.dilate(obst, np.ones((3, 3), np.uint8))
+    free = (mask > 0) & (obst == 0)
+    f = max(1, int(round(sc["cell_m"] / GRID)))
+    H, W = (g.h + f - 1) // f * f, (g.w + f - 1) // f * f
+    pad = np.zeros((H, W), np.float32)
+    pad[:g.h, :g.w] = free
+    coarse = pad.reshape(H // f, f, W // f, f).mean((1, 3)) >= 0.5
+    part = rooms_scp.partition(coarse, GRID * f, (float(np.log(sc["ratio_band"][0])), float(np.log(sc["ratio_band"][1]))),
+                               sc["r_min_m"], sc["r_floor_m"])
+    lab = np.repeat(np.repeat(part.labels, f, 0), f, 1)[:g.h, :g.w]
+    lab = np.where(mask > 0, lab, 0).astype(np.int32)
+    segment_rooms.scp = part           # diagnostics: tau, seeds, margins
+    return lab
 
 
 # ---------------------------------------------------------------------------------------------------

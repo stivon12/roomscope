@@ -47,6 +47,9 @@ def analyse(cap, corrs, warnings: list[str], single_room: bool = False):
     ceil_z = (L.pick_level(cp, "high") - floor.c) if len(cp) > 100 else ccfg["max_m"]
     walls = L.fit_wall_planes(cloud, floor, ceil_z)
     masks, g, cuts, inferred = L.segment_rooms(cloud, floor, walls, single_room=single_room)
+    for a in getattr(L.segment_rooms, "not_entered", []):
+        warnings.append(f"a {a:.1f} m2 region was seen (e.g. through a doorway) but the camera never walked into it: "
+                        "not reported as a room")
 
     rooms = []
     for m, inf_area in zip(masks, inferred):
