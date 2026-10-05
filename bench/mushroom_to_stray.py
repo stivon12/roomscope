@@ -57,6 +57,7 @@ def convert(src: Path, dst: Path) -> int:
                     f"{f['fl_x']}, {f['fl_y']}, {f['cx']}, {f['cy']}, , ")
     vid.release()
     (dst / "odometry.csv").write_text("\n".join(rows) + "\n")
+    (dst / "device.txt").write_text("iPhone 12 Pro Max (Polycam depth)\n")   # MuSHRoom's capture phone (dataset paper)
     f = frames[-1]
     np.savetxt(dst / "camera_matrix.csv", [[f["fl_x"], 0, f["cx"]], [0, f["fl_y"], f["cy"]], [0, 0, 1]],
                delimiter=",")

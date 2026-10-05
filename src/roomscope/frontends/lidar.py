@@ -304,8 +304,12 @@ def _is_stray(path: Path) -> bool:
 def device_of(path: Path) -> str | None:
     """Device model when the capture format records it. ARKitScenes was recorded on the 2020 iPad Pro
     (Baruch et al. 2021); Stray exports carry no model anywhere (checked: video metadata, odometry,
-    camera matrix, IMU), so the operator must pass --device."""
-    return None if _is_stray(Path(path)) else "iPad Pro (2020)"
+    camera matrix, IMU), so the operator passes --device or leaves the model in a `device.txt` next to it."""
+    path = Path(path)
+    if not _is_stray(path):
+        return "iPad Pro (2020)"
+    f = path / "device.txt"
+    return f.read_text().strip() or None if f.exists() else None
 
 
 def load_any(path: Path, **kw) -> LidarCapture:

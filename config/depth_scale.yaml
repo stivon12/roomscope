@@ -11,6 +11,10 @@ devices:
     scale: 0.9883        # -1.17%: median of -1.10% (42444949) and -1.23% (42444950)
     se: 0.0011           # sd of the three laser-measured captures (-1.10, -1.23, -1.31% incl. held-out 42444946)
     source: "ARKitScenes iPad Pro (2020) LiDAR, Faro reference, captures 42444949+42444950"
+  "iPhone 12 Pro Max (Polycam depth)":
+    scale: 0.9968        # -0.32%: median of 6 opposite-wall distances vs the Faro laser, uncorrected depth
+    se: 0.0013           # 1.4826 x MAD of the 6 ratios
+    source: "MuSHRoom vr_room (long + short) vs Faro laser; held out from the head-to-head rooms (bench/depth_scale_walls.py)"
   # more entries are written by `roomscope calibrate-depth` from one tape-measured reference per phone
 # A phone with no entry (or not named: Stray exports do not record the model). Assumption, not a
 # measurement: Apple's Pro iPhones and iPads share the same class of dToF LiDAR module, so the centre is
