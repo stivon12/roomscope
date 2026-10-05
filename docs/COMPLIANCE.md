@@ -14,7 +14,7 @@ Status: ✅ done and verified · 🟡 partial · ⬜ not started · ❌ known fa
 | 2.3 | Per-surface damage regions, class and metric extent | `src/roomscope/damage/` | `damage_regions[]` | 🟡 LiDAR tier; real-photo check (`bench/damage_photos.py`); extent unmeasured (no damaged room) |
 | 2.4 | Concealed-damage flags with the rule that fired | `rules/concealed.yaml`, `src/roomscope/scope/` | `concealed_flags[]` | ✅ public citations (EPA, BRE, 40 CFR 745); `tests/test_scope_rules.py` |
 | 2.5 | Scope line items keyed to surfaces | `rules/scope.yaml`, `src/roomscope/scope/` | `scope_items[]` | ✅ category hints from the public Xactimate list, no prices |
-| 2.6 | Confidence interval on every measurement | `src/roomscope/core/calibrate.py`, `config/calibration.json` | schema `$defs/measurement` | 🟡 LiDAR conformal (13/15 on the benchmark); video and photo: Fix 3 |
+| 2.6 | Confidence interval on every measurement | `src/roomscope/core/calibrate.py`, `config/calibration.json` | schema `$defs/measurement` | 🟡 every tier calibrated. Benchmark coverage: LiDAR 13/15, video 4/4 (±25 %), photo 3/3 (±103 %). LiDAR still fitted against the old wall reference |
 | 2.7 | One command per capture | `src/roomscope/cli.py` | `roomscope run <capture>` | ✅ |
 | 2.8 | JSON to the published schema | `schema/plan.schema.json` | `roomscope validate` | ✅ |
 | 2.9 | Rendered plan | `src/roomscope/render.py` | `plan.png` | ✅ |
@@ -28,10 +28,10 @@ Status: ✅ done and verified · 🟡 partial · ⬜ not started · ❌ known fa
 | G.3 | Repeatability: 1 cm or 0.5 % per wall | `bench/gates.py`, `bench/repeatability.py` | `bench/results/gates.md` | ❌ LiDAR 4/12, video 0/4, photo 0/2 |
 | G.4 | Drift handling + on/off ablation of the stitched footprint | `src/roomscope/core/drift.py`, `out/bench/drift_off` | `docs/REPORT.md` §3 | 🟡 plane-anchored pose graph; do-no-harm on laser poses; YC footprint ablation in the report |
 | G.5 | Photo whole-property stitch, ±8 % footprint, calibrated | `bench/gates.py` | `bench/results/gates.md` | 🟡 stitches 5 of 6 rooms; footprint not measurable (no ground truth) |
-| G.6 | Photo ±8 % / video ±3 % walls; calibration at every tier | `bench/gates.py`, `bench/calibrate.py` | `bench/results/gates.md` | ❌ accuracy not met; calibration: Fix 3 |
+| G.6 | Photo ±8 % / video ±3 % walls; calibration at every tier | `bench/gates.py`, `bench/calibrate.py` | `bench/results/gates.md` | ❌ accuracy not met (scale off 3–12 %); calibration met at every tier after Fix 3 (wide) |
 | 3.1 | Head-to-head vs a consumer app on 2 rooms | — | — | ⬜ needs Polycam captures of the benchmark rooms |
 | 4.1 | Fix declaration (worst gate, root cause, prediction) | `fix/DECLARATION.md` | doc, tags `fix2-before`, `fix3-before` | ✅ fixes 1–3 |
-| 4.2 | Fix shipped; regenerable before/after + diff | `fix/`, `bench/gates.py`, `bench/calibrate.py` | tags `fix3-before` / `fix3-after` | 🟡 Fix 3 in progress |
+| 4.2 | Fix shipped; regenerable before/after + diff | `fix/`, `bench/gates.py`, `bench/calibrate.py` | tags `fix3-before` / `fix3-after` | ✅ Fix 3: coverage 0/7 → 7/7 (tags `fix3-before` / `fix3-after`); widths missed the prediction, explained |
 | 5.1 | Incremental commit history | git log | — | ✅ |
 | D.3 | README: fresh capture → result in under 15 min | `README.md` | — | 🟡 measured 4 min 20 s before the damage models (+5 GB, not re-timed) |
 | D.4 | Reproduction bundle | `bench/gates.py`, caches under `out/cache` | — | 🟡 commands in `docs/REPORT.md` §8; raw data packaging not done |

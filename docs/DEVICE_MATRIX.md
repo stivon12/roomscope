@@ -25,7 +25,7 @@ untested. The LiDAR tier carries a 1 % depth-scale prior for an unknown device u
 | Wall length, clean laser reference | median 8.7 cm on 21 walls, 9 over 10 cm (ARKitScenes). Errors come from wall placement, not depth (`docs/WALL_ERRORS.md`) | too few cleanly referenced walls to state; wall planes 10–100 cm off | too few cleanly referenced walls to state |
 | Brief tolerance | (ceiling 1.5 cm) | walls ±3 %: **not met** | walls ±8 %: **not met** |
 | Repeatability (two captures, same room) | 4/12 walls within max(1 cm, 0.5 %) | 0/4 | 0/2 |
-| Intervals cover the truth (nominal 90 %) | 13/15 | see Fix 3 | see Fix 3 |
+| Intervals cover the truth (nominal 90 %) | 13/15 | 4/4, at ±25 % (Fix 3) | 3/3, at ±103 %: ceiling height is barely measurable from eye-level photos |
 | Multi-room | splits rooms; the YC apartment gives 6 rooms | **one room only**: COLMAP breaks a multi-room walk into pieces and keeps the largest | stitches per-room folders: YC 5 of 6 rooms placed |
 | Openings | detected, not measured (no opening ground truth) | as LiDAR | as LiDAR |
 | Damage | runs: multi-view vote on the LiDAR surfaces | not run (no per-frame depth) | not run |
