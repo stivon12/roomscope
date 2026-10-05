@@ -26,7 +26,7 @@ Status: ✅ done and verified · 🟡 partial · ⬜ not started · ❌ known fa
 | G.1 | Openings ≤ 2 cm on ≥ 85 % | `bench/gates.py` | `bench/results/gates.md` | ⬜ not measurable: no opening ground truth |
 | G.2 | Ceiling ≤ 1.5 cm; repeat spread ≤ 1 cm | `bench/gates.py` | `bench/results/gates.md` | ✅ 4/4 rooms; spread 0.62 / 0.41 cm (repeatable and unbiased at this n) |
 | G.3 | Repeatability: 1 cm or 0.5 % per wall | `bench/gates.py`, `bench/repeatability.py` | `bench/results/gates.md` | ❌ LiDAR 4/12, video 0/4, photo 0/2 |
-| G.4 | Drift handling + on/off ablation of the stitched footprint | `src/roomscope/core/drift.py`, `out/bench/drift_off` | `docs/REPORT.md` §3 | 🟡 plane-anchored pose graph; do-no-harm on laser poses; YC footprint ablation in the report |
+| G.4 | Drift handling + on/off ablation of the stitched footprint | `src/roomscope/core/drift.py`, `out/bench/drift_off` | `TECHNICAL_REPORT.md` §3 | 🟡 plane-anchored pose graph; do-no-harm on laser poses; YC footprint ablation in the report |
 | G.5 | Photo whole-property stitch, ±8 % footprint, calibrated | `bench/gates.py` | `bench/results/gates.md` | ❌ 6 of 6 rooms reconstructed but only 1 connected: no doors detected at the photo tier; footprint not measurable (no ground truth) |
 | G.6 | Photo ±8 % / video ±3 % walls; calibration at every tier | `bench/gates.py`, `bench/calibrate.py` | `bench/results/gates.md` | ❌ accuracy not met (scale off 3–12 %); calibration met at every tier after Fix 3 (wide) |
 | 3.1 | Head-to-head vs a consumer app on 2 rooms | — | — | ⬜ needs Polycam captures of the benchmark rooms |
@@ -34,8 +34,8 @@ Status: ✅ done and verified · 🟡 partial · ⬜ not started · ❌ known fa
 | 4.2 | Fix shipped; regenerable before/after + diff | `fix/`, `bench/gates.py`, `bench/calibrate.py` | tags `fix3-before` / `fix3-after` | ✅ Fix 3: coverage 0/7 → 7/7 (tags `fix3-before` / `fix3-after`); widths missed the prediction, explained |
 | 5.1 | Incremental commit history | git log | — | ✅ |
 | D.3 | README: fresh capture → result in under 15 min | `README.md` | — | 🟡 measured 4 min 20 s before the damage models (+5 GB, not re-timed) |
-| D.4 | Reproduction bundle | `bench/gates.py`, caches under `out/cache` | — | 🟡 commands in `docs/REPORT.md` §8; raw data packaging not done |
-| D.7 | Technical report ≤ 6 pages | `docs/REPORT.md`, `scripts/render_report.py` | `docs/REPORT.pdf` (4 pages) | ✅ |
+| D.4 | Reproduction bundle | `bench/gates.py`, caches under `out/cache` | — | 🟡 regeneration commands at the top of `TECHNICAL_REPORT.md`; raw data packaging not done |
+| D.7 | Technical report ≤ 6 pages | `TECHNICAL_REPORT.md`, `scripts/render_report.py` | `TECHNICAL_REPORT.pdf` (4 pages) | ✅ |
 | D.8 | Raw benchmark data | `benchmark/raw/MANIFEST.md` | — | 🟡 listed and sourced; own captures pending |
-| C.1 | Mirrors, glass, wet-look, low light covered | `docs/REPORT.md` §9, `frontends/lidar.py` | — | 🟡 covered in writing; glass and low-light geometry not mitigated |
+| C.1 | Mirrors, glass, wet-look, low light covered | `TECHNICAL_REPORT.md` §7, `frontends/lidar.py` | — | 🟡 covered in writing; glass and low-light geometry not mitigated |
 | C.2 | Weights fetched by script; models disclosed | `scripts/fetch_weights.sh`, `meta.models` | — | ✅ all ungated, Apache/MIT |

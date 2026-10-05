@@ -1,4 +1,4 @@
-"""Render docs/REPORT.md to docs/REPORT.pdf (A4) with headless Chrome: python scripts/render_report.py"""
+"""Render TECHNICAL_REPORT.md to TECHNICAL_REPORT.pdf (A4) with headless Chrome: python scripts/render_report.py"""
 import re
 import subprocess
 from pathlib import Path
@@ -28,11 +28,11 @@ def prepare(md: str) -> str:
     return "\n".join(out)
 
 
-html = markdown.markdown(prepare((ROOT / "docs/REPORT.md").read_text()), extensions=["tables"])
-(ROOT / "docs/REPORT.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>roomscope technical report</title>"
+html = markdown.markdown(prepare((ROOT / "TECHNICAL_REPORT.md").read_text()), extensions=["tables"])
+(ROOT / "TECHNICAL_REPORT.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>roomscope technical report</title>"
                                        f"<style>{CSS}</style></head><body>{html}</body></html>")
 chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 subprocess.run([chrome, "--headless", "--disable-gpu", "--no-pdf-header-footer",
-                f"--print-to-pdf={ROOT / 'docs/REPORT.pdf'}", str(ROOT / "docs/REPORT.html")], check=True,
+                f"--print-to-pdf={ROOT / 'TECHNICAL_REPORT.pdf'}", str(ROOT / "TECHNICAL_REPORT.html")], check=True,
                stderr=subprocess.DEVNULL)
-print("wrote docs/REPORT.pdf")
+print("wrote TECHNICAL_REPORT.pdf")

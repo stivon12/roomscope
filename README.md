@@ -6,10 +6,12 @@ One command per capture, three capture tiers sharing one output contract (`schem
 | Tier | Input | Status (measured against Faro laser scans, ARKitScenes) |
 |---|---|---|
 | **LiDAR** | Stray Scanner export, or an ARKitScenes raw scene | Runs end to end. Ceiling within 1 cm on 3/3 held-out captures; walls: against the structural laser reference, median wall-length error 8.7 cm on the 21 cleanly referenced walls, 9 of them off by more than 10 cm (the 1.4 cm quoted earlier came from a scorer that matched our own edges; see docs/WALL_ERRORS.md). Interval calibration must be refit against the new reference. |
-| **Photo** | one folder of 2–8 photos per room | Runs end to end and stitches per-room folders (YC apartment: 5 of 6 rooms placed). **Not accurate yet:** metric scale off by 3–12 %, so ceilings are 7–28 cm off; the ±8 % wall gate is not met. |
+| **Photo** | one folder of 2–8 photos per room | Runs end to end on per-room folders (YC apartment: all 6 rooms reconstructed, but only 1 connected: no doors are detected at the photo tier, so the whole-property stitch does not hold yet). **Not accurate yet:** metric scale off by 3–12 %, so ceilings are 7–28 cm off; the ±8 % wall gate is not met. |
 | **Video** | one walkthrough video | Runs end to end (COLMAP poses + Depth Anything 3 depth). **Not accurate yet:** metric scale off by 3–12 % (ceilings 8–28 cm); the ±3 % wall gate is not met. On multi-room walks COLMAP splits the walk into pieces and only the largest is kept. |
 
-Per-tier accuracy is in `docs/DEVICE_MATRIX.md`, gates on the benchmark set in `bench/results/gates.md`, the report in `docs/REPORT.md`, the compliance matrix in `docs/COMPLIANCE.md` and the fix loop in `fix/`.
+**[Technical report](TECHNICAL_REPORT.md)** ([PDF](TECHNICAL_REPORT.pdf)): architecture, tiers and device matrix, drift, error budget, calibration, fix loop, failure modes.
+
+Per-tier accuracy is in `docs/DEVICE_MATRIX.md`, gates on the benchmark set in `bench/results/gates.md`, the compliance matrix in `docs/COMPLIANCE.md` and the fix loop in `fix/`.
 
 ## Install (macOS Apple Silicon or Linux, Python 3.11+, one environment)
 

@@ -1,4 +1,4 @@
-# roomscope: technical report
+# roomscope: Technical Report
 
 roomscope turns a phone capture into a dimensioned multi-room floor plan, with a calibrated interval on every
 number. One command per capture (`roomscope run <capture>`); one JSON contract (`schema/plan.schema.json`) for
