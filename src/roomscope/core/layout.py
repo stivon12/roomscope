@@ -35,6 +35,9 @@ GRID = 0.02            # floor/wall evidence grid resolution (m)
 CLASS_COS = 0.85       # |n . axis| needed to assign a point to a planar class (~32 deg)
 FACES = {"+x": (0, 1), "-x": (0, -1), "+y": (1, 1), "-y": (1, -1)}
 SNAP_DIST = 0.30      # floor-boundary edge -> wall plane snapping radius (m)
+STRUCT_REACH = 0.80   # how far behind a furniture front the structural wall may stand (m): wardrobe/counter depth
+STRUCT_TOP_GAP = 0.60 # a structural wall is observed to within this of the ceiling (m)
+STRUCT_COVER = 0.5    # share of the edge's span the structural wall's own segments must cover
 LAYOUT_CONFIG = __import__("pathlib").Path(__file__).resolve().parents[3] / "config" / "layout.yaml"
 SYS_LEN = 0.005        # systematic floor on length uncertainty (LiDAR range bias), placeholder until conformal
 Z95 = 1.645            # 90% two-sided
@@ -748,7 +751,19 @@ class Edge:
 DIAG_LEG_MIN_M = 0.5    # a diagonal floor-outline segment this long is a visibility limit, not contour noise
 
 
-def room_polygon(mask: np.ndarray, g: Grid2, walls: list[WallPlane], others: np.ndarray | None = None):
+def _structural(wp: WallPlane, top_ref: float | None) -> bool:
+    return wp.kind == "wall" and top_ref is not None and wp.top >= top_ref - STRUCT_TOP_GAP
+
+
+def _cover(wp: WallPlane, lo: float, hi: float) -> float:
+    """Share of [lo, hi] covered by the plane's observed segments."""
+    if hi <= lo:
+        return 0.0
+    return sum(max(0.0, min(s1, hi) - max(s0, lo)) for s0, s1 in wp.segments) / (hi - lo)
+
+
+def room_polygon(mask: np.ndarray, g: Grid2, walls: list[WallPlane], others: np.ndarray | None = None,
+                 ceil_h: float | None = None):
     """Contour -> rectilinear edges -> each edge snapped to the wall plane facing into the room.
 
     others: the other rooms' floor masks. An edge whose outside is mostly another room's floor is an open
@@ -777,6 +792,9 @@ def room_polygon(mask: np.ndarray, g: Grid2, walls: list[WallPlane], others: np.
         if np.hypot(*d) >= DIAG_LEG_MIN_M and min(abs(d[0]), abs(d[1])) / np.hypot(*d) > 0.35:
             c1, c2 = np.array([p[0], q[1]]), np.array([q[0], p[1]])
             rect.append(c1 if not poly.contains(Point(*c1)) else c2)
+    # ceiling reference for "reaches the ceiling": the measured ceiling, else the tallest observed wall
+    tops = [wp.top for wp in walls if wp.kind == "wall"]
+    top_ref = ceil_h if ceil_h is not None else (max(tops) if tops else None)
     pts = np.array(rect)
     edges: list[Edge] = []
     n = len(pts)
@@ -820,6 +838,20 @@ def room_polygon(mask: np.ndarray, g: Grid2, walls: list[WallPlane], others: np.
             score = abs(wp.offset - c) + 0.1 * gap + (0.15 if wp.top < 1.8 else 0.0)
             if score < bs:
                 best, bs = wp, score
+        # The floor boundary stops at furniture fronts. When nothing structural was snapped, look further
+        # out (up to a wardrobe's depth) for the innermost wall plane that reaches the ceiling and covers
+        # the edge: that is the room's wall, the face in front of it is not (coffee_room: a 1.2 m unit
+        # 37 cm in front of a full-height wall).
+        if best is None or not _structural(best, top_ref):
+            out_best = None
+            for wp in walls:
+                out = sign * (c - wp.offset)          # > 0: plane lies outside the floor boundary
+                if (wp.face != face or not _structural(wp, top_ref) or not -0.05 <= out <= STRUCT_REACH
+                        or _cover(wp, lo, hi) < STRUCT_COVER):
+                    continue
+                if out_best is None or out < sign * (c - out_best.offset):
+                    out_best = wp
+            best = out_best or best
         edges.append(Edge(axis, best.offset if best else c, face, best))
     # merge consecutive edges on the same axis (contour steps / noise) keeping the better supported one
     merged: list[Edge] = []

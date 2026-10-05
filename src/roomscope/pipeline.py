@@ -69,7 +69,7 @@ def analyse(cap, corrs, warnings: list[str], single_room: bool = False):
         if inf_area > 0.25:
             warnings.append(f"{inf_area:.2f} m2 of floor inferred (enclosed by walls, not directly observed)")
         others = np.any([o for j, o in enumerate(masks) if j != k], axis=0) if len(masks) > 1 else None
-        r = L.room_polygon(m, g, walls, others)
+        r = L.room_polygon(m, g, walls, others, ceil_h=ceil_z if len(cp) > 100 else None)
         if r is None:
             warnings.append("a floor region could not be turned into a closed polygon and was dropped")
             continue
@@ -177,6 +177,8 @@ def assemble(rooms, faces, grids, openings, warnings) -> dict:
             fi = next(i for i, f in enumerate(faces) if f.room == ri and f.wall_idx == k)
             S = grids[fi]["solid"]
             seen = float((S.sum(0) >= 3).mean()) if S.size else 0.0
+            if e.plane is None and not e.shared:
+                seen = 0.0                  # floor-boundary edge: returns there are the furniture front, not a wall
             seen_frac.append(seen)
             # where the wall was not seen, its position is inferred (extended line or floor boundary):
             # +-5 cm position uncertainty instead of the plane-fit standard error
