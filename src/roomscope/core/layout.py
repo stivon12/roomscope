@@ -557,6 +557,16 @@ def segment_rooms(cloud: Cloud, floor: HPlane, walls: list[WallPlane], min_area:
     for a, b, c, d in zip(cj, ci, pj, pi_):
         cv2.line(free, (int(a), int(b)), (int(c), int(d)), 1, 1)
     mask |= free
+    # The strongest free-space evidence is the camera itself: the floor around where the phone was held is
+    # empty, yet no ray from a camera that looks outwards ever crosses it. Without this, an operator who
+    # walks a loop in the middle of a room leaves an unobserved hole there (c00a170fe1: 0.6 x 1.2 m, open to
+    # the room's edge, so it was not filled and the room outline could not be built).
+    rcfg = layout_config().get("rooms", {})
+    rad = int(round(rcfg.get("camera_free_radius_m", 0.0) / GRID))
+    if rad > 0:
+        ci, cj = g.ij(cloud.cams[:, 0], cloud.cams[:, 1])
+        for a, b in zip(cj, ci):
+            cv2.circle(mask, (int(a), int(b)), rad, 1, -1)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
     cut = mask.copy()
     for ct in cuts:
@@ -579,7 +589,6 @@ def segment_rooms(cloud: Cloud, floor: HPlane, walls: list[WallPlane], min_area:
             m = np.zeros_like(mask)
             cv2.fillConvexPoly(m, hull, 1)
             return [m], g, cuts, [float(max(0, m.sum() - (mask & m).sum()) * GRID * GRID)]
-    rcfg = layout_config().get("rooms", {})
     if rcfg.get("method") == "scp":
         lab = _scp_labels(cloud, zrel, mask, g, rcfg)
         n = int(lab.max()) + 1

@@ -11,6 +11,8 @@ rooms:
   min_room_area_m2: 1.0      # smallest region kept as a room (a WC is ~1.2 m2)
   entered_depth_m: 0.3       # a room counts as scanned only if the camera walked into it: deeper than half a
   entered_path_m: 0.5        # doorway (0.3 m) for at least one step (0.5 m) of path (Turner & Zakhor 2014)
+  camera_free_radius_m: 0.25 # floor within this distance of a camera position is free: the phone and the hand
+                             # holding it were there (the operator's own footprint is never seen by the sensor)
   scp:
     # Frozen 2026-10-05 from bench/room_seg_eval.py --sweep on Bormann et al.'s 20 labelled maps, before use
     # on our captures. The band was proposed a priori (room radius / half door width: bedroom ~3.7,
