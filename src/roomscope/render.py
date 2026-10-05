@@ -13,6 +13,8 @@ OPENING_COLOR = {"door": "#8c5a2b", "window": "#2b7bb9", "opening": "#888888"}
 
 
 def _fmt(m) -> str:
+    if m.get("observed") is False:
+        return f"≥{m['lo']:.2f} (not observed)"
     half = (m["hi"] - m["lo"]) / 2
     return f"{m['value']:.2f}±{half * 100:.1f}cm" if m["unit"] == "m" else f"{m['value']:.2f}"
 

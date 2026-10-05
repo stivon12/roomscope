@@ -1,0 +1,7 @@
+# Physical priors for room layout (core/layout.py, pipeline.analyse). Not tuned to any capture or device.
+
+ceiling:
+  # used only where no ceiling points were seen; the result is then flagged observed: false
+  typical_m: 2.50            # common residential finished height (US 8 ft = 2.44 m; EU 2.5-2.6 m)
+  max_m: 3.60                # upper end of residential ceilings (12 ft); the reported range never claims less
+  room_sigma_m: 0.15         # room-to-room difference inside one dwelling (dropped bathroom/hall ceilings)

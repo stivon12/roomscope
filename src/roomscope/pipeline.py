@@ -42,7 +42,9 @@ def analyse(cap, corrs, warnings: list[str], single_room: bool = False):
     fp = cloud.P[cloud.cls == "floor"]
     floor = L.fit_hplane(fp, z0=L.pick_level(fp, "low"))
     cp = cloud.P[cloud.cls == "ceil"]
-    ceil_z = (L.pick_level(cp, "high") - floor.c) if len(cp) > 100 else 2.4
+    ccfg = L.layout_config()["ceiling"]
+    # no ceiling seen anywhere: fit walls up to the prior maximum instead of assuming a height
+    ceil_z = (L.pick_level(cp, "high") - floor.c) if len(cp) > 100 else ccfg["max_m"]
     walls = L.fit_wall_planes(cloud, floor, ceil_z)
     masks, g, cuts, inferred = L.segment_rooms(cloud, floor, walls, single_room=single_room)
 
@@ -57,10 +59,8 @@ def analyse(cap, corrs, warnings: list[str], single_room: bool = False):
         corners, edges = r
         poly = Polygon(corners)
         ch = L.ceiling_height(cloud, floor, poly)
-        if ch is None:
-            warnings.append("ceiling not observed in a room; height taken from global ceiling estimate")
-            ch = (ceil_z, 0.05, 0)
         rooms.append({"corners": corners, "edges": edges, "poly": poly, "ceil": ch})
+    _fill_unobserved_ceilings(rooms, walls, ccfg, warnings)
 
     faces = []
     for ri, r in enumerate(rooms):
@@ -78,6 +78,42 @@ def analyse(cap, corrs, warnings: list[str], single_room: bool = False):
     return rooms, faces, grids, openings, cloud
 
 
+def _fill_unobserved_ceilings(rooms, walls, ccfg: dict, warnings: list[str]):
+    """Rooms whose ceiling was never scanned get a range, flagged observed: false, never a measurement:
+    - other rooms of the capture measured theirs: their median, widened by their spread and the
+      room-to-room prior (config/layout.yaml ceiling.room_sigma_m);
+    - nobody saw a ceiling: from the highest wall point near the room (the ceiling is at least that
+      high) to the residential maximum, centred on the typical height clamped into that range."""
+    seen = [r["ceil"][0] for r in rooms if r["ceil"] is not None]
+    for ri, r in enumerate(rooms):
+        if r["ceil"] is not None:
+            r["ceil_meas"] = None
+            continue
+        if seen:
+            v = float(np.median(seen))
+            half = L.Z95 * float(np.hypot(np.std(seen), ccfg["room_sigma_m"]))
+            m = Measurement(v, v - half, v + half, method="inferred:other-rooms-of-capture", observed=False)
+            warnings.append(f"R{ri + 1} ceiling not observed: {m.lo:.2f}-{m.hi:.2f} m inferred from the other rooms, "
+                            "not a measurement")
+        else:
+            near = r["poly"].buffer(0.3)
+            tops = [w.top for w in walls if w.kind == "wall" and any(
+                near.intersects(_wall_line(w, lo, hi)) for lo, hi in w.segments)]
+            lo = max(tops) if tops else 0.0
+            hi = max(ccfg["max_m"], lo)
+            v = float(np.clip(ccfg["typical_m"], lo, hi))
+            m = Measurement(v, lo, hi, method="not-observed:residential-prior", observed=False)
+            warnings.append(f"R{ri + 1} ceiling not observed: at least {lo:.2f} m (highest wall point), reported range "
+                            f"{lo:.2f}-{hi:.2f} m, not a measurement")
+        r["ceil"] = (m.value, (m.hi - m.lo) / (2 * L.Z95), 0)
+        r["ceil_meas"] = m
+
+
+def _wall_line(w, lo: float, hi: float):
+    from shapely.geometry import LineString
+    return LineString([(w.offset, lo), (w.offset, hi)] if w.axis == 0 else [(lo, w.offset), (hi, w.offset)])
+
+
 def assemble(rooms, faces, grids, openings, warnings) -> dict:
     out_rooms, surfaces, adjacency = [], [], []
     op_records = []          # (room_id, opening_json, OpeningEst)
@@ -85,7 +121,7 @@ def assemble(rooms, faces, grids, openings, warnings) -> dict:
         rid = f"R{ri + 1}"
         corners, edges, poly = r["corners"], r["edges"], r["poly"]
         h, h_se, _ = r["ceil"]
-        height = L.meas_len(h, h_se)
+        height = r.get("ceil_meas") or L.meas_len(h, h_se)
         n = len(corners)
         walls_json = []
         area_var = 0.0

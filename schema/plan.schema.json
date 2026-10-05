@@ -18,7 +18,8 @@
         "hi": {"type": "number"},
         "unit": {"enum": ["m", "m2", "ft", "ft2", "count"]},
         "level": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
-        "method": {"type": "string", "description": "How the interval was derived, e.g. 'conformal:lidar:v1'"}
+        "method": {"type": "string", "description": "How the interval was derived, e.g. 'conformal:lidar:v1'"},
+        "observed": {"type": "boolean", "description": "false when nothing was measured (e.g. a ceiling never scanned): the interval is a prior range, not a measurement. Absent means true."}
       }
     },
     "point2": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},

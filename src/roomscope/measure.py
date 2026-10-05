@@ -12,6 +12,7 @@ class Measurement:
     unit: str = "m"
     level: float = 0.9
     method: str = "uncalibrated"
+    observed: bool = True   # False: no direct evidence (e.g. a ceiling never scanned); the interval is a prior range
 
     @classmethod
     def from_rel(cls, value: float, rel_halfwidth: float, **kw) -> "Measurement":
@@ -31,4 +32,5 @@ class Measurement:
             "unit": self.unit,
             "level": self.level,
             "method": self.method,
+            **({} if self.observed else {"observed": False}),
         }

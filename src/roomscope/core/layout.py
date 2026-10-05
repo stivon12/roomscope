@@ -34,8 +34,15 @@ GRID = 0.02            # floor/wall evidence grid resolution (m)
 CLASS_COS = 0.85       # |n . axis| needed to assign a point to a planar class (~32 deg)
 FACES = {"+x": (0, 1), "-x": (0, -1), "+y": (1, 1), "-y": (1, -1)}
 SNAP_DIST = 0.30      # floor-boundary edge -> wall plane snapping radius (m)
+LAYOUT_CONFIG = __import__("pathlib").Path(__file__).resolve().parents[3] / "config" / "layout.yaml"
 SYS_LEN = 0.005        # systematic floor on length uncertainty (LiDAR range bias), placeholder until conformal
 Z95 = 1.645            # 90% two-sided
+
+
+def layout_config() -> dict:
+    """Physical priors for layout (config/layout.yaml)."""
+    import yaml
+    return yaml.safe_load(LAYOUT_CONFIG.read_text())
 
 
 # ---------------------------------------------------------------------------------------------------

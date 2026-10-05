@@ -188,6 +188,8 @@ def load() -> dict:
 
 def _recal(m: dict, q: float, tag: str, level: float, ref_scale: float | None = None) -> dict:
     """Rewrite one measurement dict in place: half-width = q * u (or raw half-width * ref_scale)."""
+    if m.get("observed") is False:
+        return m        # a prior range (nothing was measured): conformal factors fitted on measurements do not apply
     v, raw_half = m["value"], m["hi"] - m["value"]
     half = raw_half * ref_scale if ref_scale is not None else q * normaliser(v, raw_half)
     m.update(lo=round(v - half, 4), hi=round(v + half, 4), level=level, method=tag)
