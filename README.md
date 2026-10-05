@@ -6,10 +6,10 @@ One command per capture, three capture tiers sharing one output contract (`schem
 | Tier | Input | Status (measured against Faro laser scans, ARKitScenes) |
 |---|---|---|
 | **LiDAR** | Stray Scanner export, or an ARKitScenes raw scene | Runs end to end. Ceiling within 1 cm on 3/3 held-out captures; walls: against the structural laser reference, median wall-length error 8.7 cm on the 21 cleanly referenced walls, 9 of them off by more than 10 cm (the 1.4 cm quoted earlier came from a scorer that matched our own edges; see docs/WALL_ERRORS.md). Interval calibration must be refit against the new reference. |
-| **Photo** | one folder of 2–8 photos per room | Runs end to end. Wall lengths +4 % / +1 % / −3 % on three rooms; **ceiling height unreliable** (eye-level photos rarely show the ceiling); not yet calibrated. |
-| **Video** | one walkthrough video | Runs end to end (COLMAP poses + Depth Anything 3 depth); **not accurate yet**. On multi-room walks COLMAP splits the walk into several pieces and only the largest is kept, without a warning (open; see `benchmark/raw/MANIFEST.md`). |
+| **Photo** | one folder of 2–8 photos per room | Runs end to end and stitches per-room folders (YC apartment: 5 of 6 rooms placed). **Not accurate yet:** metric scale off by 3–12 %, so ceilings are 7–28 cm off; the ±8 % wall gate is not met. |
+| **Video** | one walkthrough video | Runs end to end (COLMAP poses + Depth Anything 3 depth). **Not accurate yet:** metric scale off by 3–12 % (ceilings 8–28 cm); the ±3 % wall gate is not met. On multi-room walks COLMAP splits the walk into pieces and only the largest is kept. |
 
-What is measured and what is not is tracked in `docs/COMPLIANCE.md`; the fix loop is in `fix/`.
+Per-tier accuracy is in `docs/DEVICE_MATRIX.md`, gates on the benchmark set in `bench/results/gates.md`, the report in `docs/REPORT.md`, the compliance matrix in `docs/COMPLIANCE.md` and the fix loop in `fix/`.
 
 ## Install (macOS Apple Silicon or Linux, Python 3.11+, one environment)
 
