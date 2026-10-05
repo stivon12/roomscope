@@ -1,0 +1,35 @@
+# Damage detection (src/roomscope/damage). class_threshold was chosen on the tuning half of the real photos in
+# benchmark/raw/damage_photos (Wikimedia Commons, SOURCES.csv; bench/damage_photos.py), never on room captures.
+classes:                      # schema class -> phrases for the box proposer (Grounding DINO)
+  water_stain: ["water stain"]
+  mold: ["mold"]
+  crack: ["crack"]
+  hole: ["hole in wall"]
+  peeling_paint: ["peeling paint"]
+describe:                     # what the crop classifier (SigLIP 2) compares each proposal against
+  water_stain: "a brown water stain on a wall or ceiling"
+  mold: "black mold growing on a wall"
+  crack: "a crack in a plaster wall"
+  hole: "a hole in a drywall wall"
+  peeling_paint: "peeling, flaking paint"
+negatives: ["a clean painted wall", "an electrical outlet or light switch", "a light fixture or lamp",
+            "a shadow on a wall", "a picture frame on a wall", "furniture", "a window", "a door",
+            "a ceiling vent", "a floor"]
+class_threshold: 0.5          # classifier probability of the damage class: best F1 on the tuning half (bench/damage_photos.py)
+box_threshold: 0.2            # proposals are cheap: the classifier decides
+text_threshold: 0.15
+max_box_frac: 0.5             # boxes larger than this share of the image are whole walls, not damage
+work_px: 1024                 # long side of the frame given to the detector
+interval_s: 1.0               # about one keyframe per second of capture
+min_luma: 40                  # mean grey level (0-255) below which a frame is too dark to judge
+dilate_px: {crack: 3}         # cracks are a few pixels wide: widen the mask so a 2 cm cell centre can land on it
+# multi-view vote on the surface grid
+cell_m: 0.02
+max_range_m: 4.0              # beyond this a 2 cm cell is under ~4 px at 1024 px: too small to judge
+max_angle_deg: 75             # grazing views smear a mask across many cells
+occl_m: 0.05                  # LiDAR depth this much in front of the cell = something hides it
+min_views: 2
+min_ratio: 0.5
+ratio_lo: 0.75                # area range: cells agreed by >= 75% of views (lower) ...
+ratio_hi: 0.25                # ... to cells agreed by >= 25% within 4 cm of the region (upper)
+min_area_m2: {default: 0.0025, crack: 0.0012}

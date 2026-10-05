@@ -1,0 +1,45 @@
+# Concealed-damage flags: visible evidence that implies likely hidden damage. Applied by
+# src/roomscope/scope/rules.py to every damage region. Conditions (all must hold):
+#   class: [..]  surface: [wall|ceiling|floor]  area_m2_min / area_m2_max  v_min_below_m (region base height above
+#   the floor)  near_opening_corner_m (region within this distance of a door/window corner)
+# Thresholds are taken from the cited public sources; heuristics without a numeric source say so.
+- id: F1-mold-small
+  when: {class: [mold], area_m2_max: 0.929}          # < 10 sq ft
+  rule: "Mold under 10 sq ft"
+  action: "Small area: can be cleaned in-house (HEPA vacuum, N-95, gloves, goggles; no containment). Find and fix the moisture source."
+  citation: "US EPA, A Brief Guide to Mold, Moisture and Your Home; EPA 402-K-01-001 Table 2. https://www.epa.gov/mold/brief-guide-mold-moisture-and-your-home"
+- id: F2-mold-medium
+  when: {class: [mold], area_m2_min: 0.929, area_m2_max: 9.29}   # 10-100 sq ft
+  rule: "Mold 10-100 sq ft"
+  action: "Limited containment (one layer 6-mil fire-retardant poly, negative pressure via HEPA exhaust); remove and double-bag affected drywall (EPA Method 4). Inspect the cavity behind it."
+  citation: "US EPA, Mold Remediation in Schools and Commercial Buildings (402-K-01-001, 2001/2008), Ch. 3 and Table 2. https://www.epa.gov/mold/mold-remediation-schools-and-commercial-buildings-guide-chapter-3"
+- id: F3-mold-large
+  when: {class: [mold], area_m2_min: 9.29}           # > 100 sq ft
+  rule: "Mold over 100 sq ft"
+  action: "Full containment (double poly, decontamination chamber, negative pressure), full PPE; professional remediation."
+  citation: "US EPA 402-K-01-001, Ch. 3 and Table 2. https://www.epa.gov/mold/mold-remediation-schools-and-commercial-buildings-guide-chapter-3"
+- id: F4-ceiling-water
+  when: {class: [water_stain, mold], surface: [ceiling]}
+  rule: "Water stain or mold on a ceiling"
+  action: "Inspect the cavity above (roof leak, plumbing, condensation) and take moisture readings before repairing the finish."
+  citation: "US EPA, A Brief Guide to Mold, Moisture and Your Home, 'Hidden Mold' (top side of ceiling tiles; roof materials above ceiling tiles). Heuristic: no numeric threshold in the source."
+- id: F6-wicking
+  when: {class: [water_stain, mold], surface: [wall], v_min_below_m: 0.15}
+  rule: "Stain rising from the floor"
+  action: "Check behind the baseboard and take moisture readings above the visible line: in EPA tests moisture reached ~33 cm while the visible line was ~8 cm (2 days), ~43 cm by day 16."
+  citation: "Greenwell & Menetrez (US EPA NRMRL), Moisture Movement (Wicking) within Gypsum Wallboard, AWMA paper 580, 2005. https://cfpub.epa.gov/si/si_public_file_download.cfm?p_download_id=446305&Lab=NRMRL"
+- id: F8-crack-at-opening
+  when: {class: [crack], near_opening_corner_m: 0.3}
+  rule: "Crack starting at a door or window corner"
+  action: "Possible movement or settlement: crack width is not measured from the scan; inspect, and survey if wider than 5 mm (BRE category 3+)."
+  citation: "UC Davis Geotechnical Photo Album, Settlement Damage to Buildings, https://research.engineering.ucdavis.edu/gpa/?p=142 ; BRE, Assessing cracks in houses (2014), https://bregroup.com/insights/assessing-cracks-in-houses/"
+- id: F7-crack-width-unknown
+  when: {class: [crack]}
+  rule: "Crack of unmeasured width"
+  action: "Width is below what the scan resolves: measure it. Up to 5 mm is cosmetic (BRE 0-2); 5-15 mm monitor (service pipes may fracture); over 15 mm structural survey."
+  citation: "BRE, Assessing cracks in houses (R. Pool, 2014), https://bregroup.com/insights/assessing-cracks-in-houses/"
+- id: F10-lead-paint
+  when: {class: [peeling_paint], area_m2_min: 0.557}   # > 6 sq ft interior
+  rule: "Disturbing more than 6 sq ft of paint"
+  action: "If the building predates 1978: lead-safe work by an RRP-certified renovator (no open flame, no unshrouded power sanding, plastic 6 ft beyond the work)."
+  citation: "40 CFR 745.83 and 745.85. https://www.law.cornell.edu/cfr/text/40/745.83"

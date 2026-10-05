@@ -18,11 +18,11 @@ Needs [uv](https://docs.astral.sh/uv/) (`brew install uv` or `curl -LsSf https:/
 ```bash
 git clone <this repo> roomscope && cd roomscope
 uv sync --extra video --extra dev     # one .venv for every tier; LiDAR only: uv sync --extra dev
-scripts/fetch_weights.sh              # ~2.9 GB into ~/.cache/huggingface (video/photo tiers, labels)
+scripts/fetch_weights.sh              # ~7.9 GB into ~/.cache/huggingface (video/photo tiers, labels, damage)
 .venv/bin/roomscope doctor            # checks packages, GPU and weights; says which tiers are ready
 ```
 
-Measured on an M1 MacBook (16 GB) with empty caches (2026-10-05): `uv sync` 37 s, weights 182 s (2.9 GB), `pytest` 40 s: **4 min 20 s** in total. `.venv` is 1.4 GB. Download time scales with your connection.
+Measured on an M1 MacBook (16 GB) with empty caches (2026-10-05, before the damage models were added): `uv sync` 37 s, weights 182 s (2.9 GB), `pytest` 40 s: **4 min 20 s** in total. The damage models add ~5 GB of download (not yet re-timed), and `pytest` now runs the full pipeline including damage (7 min on this machine). `.venv` is 1.4 GB. Download time scales with your connection.
 
 Why there is only one environment although two of its packages clash: `pycolmap` and `torch` each ship
 an OpenMP runtime, and loading both in one Python process aborts it on macOS. They are never loaded

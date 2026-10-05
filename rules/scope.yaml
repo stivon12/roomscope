@@ -1,0 +1,62 @@
+# Scope line items per damage region. `code` is a category hint from Xactimate's public category list
+# (https://xactware.helpdocs.io/l/enUS/article/gb9lf49tdw-category-codes-in-xactimate-online) plus our own
+# selector; no licensed line items or prices. Quantities (src/roomscope/scope/rules.py):
+#   region_area   region area (SF)              wall_area   area of the whole surface the region is on (SF)
+#   flood_cut     surface length x cut height, cut = max(4 ft, region top + 0.33 m) (SF)
+#   crack_length  diagonal of the region extent (LF)   count   1 (EA)
+- id: S1-flood-cut
+  when: {class: [water_stain, mold], surface: [wall], v_min_below_m: 0.15}
+  code: "DRY-FLOODCUT"
+  description: "Remove wet drywall to cut height (4 ft, or above the wicking line) and replace"
+  unit: SF
+  quantity: flood_cut
+  citation: "Univ. of Michigan EHS, Repairing Walls from Water Damage (2017) p.3, quoting ARC/FEMA Repairing Your Flooded Home (4 ft); EPA wicking data (+33 cm)."
+- id: S2-stain-seal-paint
+  when: {class: [water_stain], v_min_above_m: 0.15}
+  code: "PNT-STAINSEAL"
+  description: "Stain-blocking primer and repaint the surface (after the source is fixed)"
+  unit: SF
+  quantity: wall_area
+  citation: "Trade convention (no public source): paint whole surface for a uniform finish."
+- id: S3-mold-clean
+  when: {class: [mold], area_m2_max: 0.929}
+  code: "HMR-MOLDCLEAN"
+  description: "HEPA vacuum and clean mold-affected area"
+  unit: SF
+  quantity: region_area
+  citation: "US EPA 402-K-01-001 Ch. 3 (cleanup methods)."
+- id: S4-mold-remove
+  when: {class: [mold], area_m2_min: 0.929}
+  code: "HMR-MOLDREMOVE"
+  description: "Remove and bag mold-affected drywall under containment, treat cavity, replace"
+  unit: SF
+  quantity: region_area
+  citation: "US EPA 402-K-01-001 Ch. 3 and Table 2 (Method 4)."
+- id: S5-crack-tape
+  when: {class: [crack]}
+  code: "DRY-CRACKTAPE"
+  description: "Cut out, tape and finish crack (cosmetic, BRE category 0-2 only)"
+  unit: LF
+  quantity: crack_length
+  citation: "BRE, Assessing cracks in houses (2014): categories 0-2 'filled and decorated'."
+- id: S6-hole-patch
+  when: {class: [hole]}
+  code: "DRY-PATCH"
+  description: "Patch hole in drywall"
+  unit: EA
+  quantity: count
+  citation: "Trade convention (no public source)."
+- id: S7-scrape-paint
+  when: {class: [peeling_paint]}
+  code: "PNT-SCRAPE"
+  description: "Scrape loose paint and repaint the surface"
+  unit: SF
+  quantity: wall_area
+  citation: "Trade convention; lead-safe practice if pre-1978 and > 6 sq ft (40 CFR 745.85)."
+- id: S8-repaint-after-repair
+  when: {class: [crack, hole]}
+  code: "PNT-WALL"
+  description: "Repaint the surface after repair"
+  unit: SF
+  quantity: wall_area
+  citation: "Trade convention (no public source)."

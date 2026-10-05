@@ -71,7 +71,8 @@ def validate(result: Path = typer.Argument(..., exists=True)):
     typer.echo(f"{result}: valid")
 
 
-WEIGHTS = ["depth-anything/DA3-BASE", "depth-anything/DA3METRIC-LARGE", "tue-mps/ade20k_semantic_eomt_large_512"]
+WEIGHTS = ["depth-anything/DA3-BASE", "depth-anything/DA3METRIC-LARGE", "tue-mps/ade20k_semantic_eomt_large_512",
+           "IDEA-Research/grounding-dino-base", "google/siglip2-base-patch16-384", "facebook/sam2.1-hiera-small"]
 # each check runs in its own interpreter: pycolmap and torch must never share a process on macOS
 CHECKS = {
     "core (LiDAR tier)": "import numpy, scipy, cv2, open3d, shapely, skimage, yaml, jsonschema",

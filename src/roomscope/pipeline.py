@@ -96,6 +96,8 @@ def analyse(cap, corrs, warnings: list[str], single_room: bool = False):
     grids = L.opening_evidence(cap, lambda i: R @ corrs[i], faces, [r["poly"] for r in rooms], floor,
                                frame_step=step)
     openings = L.detect_openings(grids, faces, cloud.cams[:, :2])
+    cloud.floor = floor                                   # for surface-anchored outputs (damage)
+    cloud.frame_to_result = lambda i: R @ corrs[i]
     return rooms, faces, grids, openings, cloud
 
 
@@ -347,7 +349,7 @@ def _save_cloud(out: Path, cloud, align, name: str = "cloud.npz"):
 
 def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, load_kw: dict | None = None,
                 depth_scale: float | None = None, depth_correction: bool = True, device: str | None = None,
-                calibrate: bool = True, n_frames: int = 32) -> Path:
+                calibrate: bool = True, n_frames: int = 32, damage: bool = True) -> Path:
     t0 = time.time()
     capture = Path(capture)
     out = Path(out_dir) / capture.name
@@ -380,6 +382,12 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, loa
         if cloud.sem is not None:
             from .core.semantics import MODEL_INFO as SEG_INFO
             models.append(SEG_INFO)
+        if damage:
+            from . import damage as Dm
+            body["damage_regions"], dm_model = Dm.detect(cap, cloud.frame_to_result, body, cloud.floor.z,
+                                                         ROOT / "out" / "cache" / "damage", warnings)
+            if dm_model:
+                models.append(dm_model)
         clouds.append((cloud, cap.align, "cloud.npz"))
     elif tier == "video":
         from .frontends.recon import MODEL_INFO
@@ -432,14 +440,15 @@ def run_capture(capture: Path, tier: str, out_dir: Path, drift: bool = True, loa
             "pipeline_version": __version__, "git_commit": _git_commit(), "models": models,
             "drift_correction": drift_meta, "depth_correction": ds_meta, "runtime_s": round(time.time() - t0, 2),
         },
-        **body,
-        "damage_regions": [], "concealed_flags": [], "scope_items": [],
+        "damage_regions": [], **body, "concealed_flags": [], "scope_items": [],
         "warnings": sorted(set(warnings)),
     }
     if calibrate:
         from .core import calibrate as Cal
         result = Cal.apply(result, tier)
         result["warnings"] = sorted(set(result["warnings"]))
+    from . import scope as Sc                    # after calibration: quantities use the calibrated surfaces
+    result["concealed_flags"], result["scope_items"] = Sc.apply(result)
     (out / "result.json").write_text(json.dumps(result, indent=2))
     for cloud, align, name in clouds:            # fused clouds in the result frame (5 cm), for GT scoring
         _save_cloud(out, cloud, align, name)
